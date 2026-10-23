@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#101428">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="description" content="ゲームごとに日課を登録して毎日チェック。更新時刻に合わせて自動リセットするデイリー管理ツール。">
   <title>デイリーボード | ゲームの日課管理</title>
   <!-- iPhone・Android用PWA設定：相対パスなのでGitHub Pagesのサブフォルダでも動きます -->
@@ -21,7 +21,7 @@
     button{cursor:pointer;touch-action:manipulation}
     button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #8de8d0;outline-offset:3px}
     button:disabled{opacity:.5;cursor:not-allowed}
-    .container{max-width:850px;margin:0 auto;padding:24px 16px max(66px,env(safe-area-inset-bottom))}
+    .container{max-width:850px;margin:0 auto;padding:max(24px,calc(env(safe-area-inset-top) + 16px)) 16px max(66px,calc(env(safe-area-inset-bottom) + 24px))}
     .header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px}
     .brand{display:flex;align-items:center;gap:13px}
     .brand-mark{display:grid;place-items:center;width:49px;height:49px;border:1px solid rgba(164,252,216,.45);border-radius:16px;background:linear-gradient(140deg,#283c53,#24473e);font-size:25px;box-shadow:0 9px 25px rgba(0,0,0,.22)}
@@ -148,7 +148,7 @@
     #toast{position:fixed;left:50%;bottom:max(28px,env(safe-area-inset-bottom));transform:translateX(-50%) translateY(18px);background:#d4fbe7;color:#163c2c;font-size:13px;font-weight:750;padding:12px 18px;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.35);z-index:50;opacity:0;pointer-events:none;transition:transform .18s,opacity .18s;max-width:90vw;text-align:center}
     #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
     .sr-only{position:absolute!important;height:1px;width:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
-    @media(min-width:650px){.container{padding-top:35px}.hero{padding:27px 32px}.hero-number{font-size:43px}.modal-overlay{align-items:center}.modal{border-radius:20px;max-height:86dvh}.game-head{padding:18px 21px 14px}.game-body{padding:0 21px 20px}}
+    @media(min-width:650px){.container{padding-top:max(35px,calc(env(safe-area-inset-top) + 18px))}.hero{padding:27px 32px}.hero-number{font-size:43px}.modal-overlay{align-items:center}.modal{border-radius:20px;max-height:86dvh}.game-head{padding:18px 21px 14px}.game-body{padding:0 21px 20px}}
     @media(max-width:370px){.container{padding-left:12px;padding-right:12px}.header{gap:6px}.brand{gap:8px}.brand-mark{width:42px;height:42px;min-width:42px}.top-actions .btn-primary{font-size:12px;padding-left:9px;padding-right:9px}.game-head{gap:8px}.game-emoji{width:43px;min-width:43px;height:43px}}
     @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important}}
   </style>
