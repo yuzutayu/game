@@ -278,7 +278,7 @@
       }))};
     }
     function save(){
-      try{localStorage.setItem(STORAGE_KEY,JSON.stringify({version:1,games}));return true}
+      try{localStorage.setItem(STORAGE_KEY,JSON.stringify({version:1,games}));window.dispatchEvent(new Event('daily-board:changed'));return true}
       catch(err){console.error(err);notice('保存できませんでした。空き容量やブラウザ設定を確認してください。');return false}
     }
     function savePrefs(){try{localStorage.setItem(SETTINGS_KEY,JSON.stringify(prefs));}catch(_){}}
@@ -464,7 +464,7 @@
             <div class="field"><label for="weeklyDay">毎週の更新曜日</label><select id="weeklyDay" class="input">${[1,2,3,4,5,6,0].map(d=>`<option value="${d}" ${g&&g.weeklyDay===d?'selected':!g&&d===1?'selected':''}>${dayNames[d]}曜日</option>`).join('')}</select></div>
           </div>
           <p class="section-help">ウィークリーも、上の更新時刻に切り替わります。</p>
-          <div class="field"><label for="reminderTime">🔔 未完了アラート時刻（任意）</label><input id="reminderTime" class="input" type="time" value="${escapeHTML(g?safeReminderTime(g.reminderTime):'')}"><div class="hint">設定した時刻を過ぎてもデイリー・ウィークリーが残っていたら、画面上にアラートを表示します。不要な場合は時刻を空欄にしてください。<strong>サイトを閉じている間はiPhoneへの通知は届きません。</strong>再び開いたときに未完了なら表示します（ゲームの更新時刻まで）。</div></div>
+          <div class="field"><label for="reminderTime">🔔 未完了アラート時刻（任意）</label><input id="reminderTime" class="input" type="time" value="${escapeHTML(g?safeReminderTime(g.reminderTime):'')}"><div class="hint">設定した時刻を過ぎてもデイリー・ウィークリーが残っていたら、画面上にアラートを表示します。不要な場合は時刻を空欄にしてください。<strong>ホーム画面のアプリで通知を有効にすると、閉じていても未完了分を通知します。</strong>アプリ内にも未完了アラートを表示します。</div></div>
           <div class="field"><label>カードの色</label><div class="swatches">${PALETTE.map(c=>`<button class="swatch ${color===c?'selected':''}" type="button" data-action="select-color" data-color="${c}" style="background:${c}" aria-label="色を選択" aria-pressed="${color===c}"></button>`).join('')}</div><input type="hidden" id="gameColor" value="${color}"></div>
           <div class="modal-actions">${g?`<button type="button" class="btn btn-danger" data-action="delete-game" data-game="${escapeHTML(g.id)}">削除</button>`:''}<button class="btn btn-primary" type="submit">${g?'変更を保存':'ゲームを登録'}</button></div>
         </form>`);
@@ -530,7 +530,7 @@
         <p class="section-help">登録データはこの端末のブラウザ内に保存されます。画像やチェック状況を外部サーバーへ送信しません。</p>
         <div class="settings-group"><h3>💾 データを守る</h3><p>このブラウザの保存領域に自動保存しています。ブラウザのデータ削除や端末変更に備え、定期的にJSONバックアップを保存してください。</p><button class="btn btn-primary" data-action="export" type="button">⬇ バックアップ保存</button><button class="btn" type="button" data-action="import">⬆ バックアップ復元</button><p class="note">復元すると、現在のゲームと日課はバックアップの内容で置き換わります。</p></div>
         <div class="settings-group"><h3>🖼️ ゲームのアイコン</h3><p>各ゲームの設定（⚙）から好きな画像を選べます。画像は小さく加工してブラウザ内に保存し、JSONバックアップにも含まれます。元の写真をGitHubにアップロードする必要はありません。画像が多いと保存容量を使うため、時々バックアップを取ってください。</p></div>
-        <div class="settings-group"><h3>🔔 未完了アラート</h3><p>ゲームの⚙からアラート時刻を指定できます。時刻を過ぎてもデイリーやウィークリーが未完了なら、画面上にお知らせを表示します。ページを閉じている間は通知を送れません。閉じたままロック画面に通知するには、別途プッシュ通知の仕組みと外部サービスが必要です。</p></div>
+        <div class="settings-group"><h3>🔔 未完了通知（iPhone）</h3><p>ゲームの⚙から通知時刻を指定できます。アプリを閉じていても未完了の日課がある場合だけ、ロック画面に通知します。初回のみ通知許可が必要です。通知を有効にすると、ゲーム名・日課名・完了情報を通知用サーバーに送ります。</p><button class="btn btn-primary" id="pushToggleButton" type="button">🔔 通知を有効にする</button><button class="btn" id="pushTestButton" type="button" hidden>🧪 テスト通知</button><p class="note" id="pushStatus" role="status" style="margin-top:10px"></p></div>
         <div class="settings-group"><h3>🔄 自動リセットについて</h3><p>ゲームごとに設定した時刻・曜日を過ぎると、対応する日課が自動で未完了扱いになります。ページを開きっぱなしでなくても、次回表示時に反映されます。更新時刻はスマホ本体の時刻とタイムゾーンを基準にします。</p></div>
         <div class="settings-group"><h3>📱 スマホでの使い方</h3><p>安定して使うには、このHTMLをHTTPSの静的サイトとして公開してSafariで開き、「共有」→「ホーム画面に追加」がおすすめです。iPhoneの「ファイル」アプリのプレビューなどでは保存が安定しない場合があります。</p></div>
         <div class="settings-group"><h3>🧪 お試し用データ</h3><p>まだゲームを登録していなければ、サンプルのゲームを追加して操作を試せます。</p><button class="btn" type="button" data-action="sample">サンプルを追加</button></div>`);
@@ -690,6 +690,8 @@
     },15000);
   })();
   </script>
+  <script src="./push-config.js"></script>
+  <script src="./push-client.js"></script>
   <!-- オフライン対応：初回はインターネット接続が必要です -->
   <script>
     if ('serviceWorker' in navigator) {
