@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101428">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="ゲームごとに日課を登録して毎日チェック。更新時刻に合わせて自動リセットするデイリー管理ツール。">
+  <title>デイリーボード | ゲームの日課管理</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0c1020;--card:#171d33;--card2:#1f2842;--line:#303955;--text:#f5f7ff;--muted:#a1adca;--accent:#93edce;--shadow:0 18px 56px rgba(0,0,0,.22)}
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{margin:0;background:radial-gradient(ellipse 90% 420px at 75% -150px,rgba(131,110,232,.24),transparent 77%),radial-gradient(ellipse 560px 380px at -90px 300px,rgba(89,175,187,.08),transparent),var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;line-height:1.5;color:var(--text);min-height:100dvh;-webkit-font-smoothing:antialiased}
+    button,input,select{font:inherit}
+    button{cursor:pointer;touch-action:manipulation}
+    button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #8de8d0;outline-offset:3px}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .container{max-width:850px;margin:0 auto;padding:24px 16px max(66px,env(safe-area-inset-bottom))}
+    .header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px}
+    .brand{display:flex;align-items:center;gap:13px}
+    .brand-mark{display:grid;place-items:center;width:49px;height:49px;border:1px solid rgba(164,252,216,.45);border-radius:16px;background:linear-gradient(140deg,#283c53,#24473e);font-size:25px;box-shadow:0 9px 25px rgba(0,0,0,.22)}
+    h1{font-size:clamp(21px,5vw,29px);line-height:1.25;letter-spacing:-.035em;margin:0;font-weight:800}
+    .subtitle{font-size:12px;color:var(--muted);margin-top:5px}
+    .btn{appearance:none;border:1px solid var(--line);background:#202940;color:var(--text);border-radius:13px;min-height:43px;padding:10px 15px;font-size:13px;font-weight:700;transition:background .15s,border-color .15s,transform .15s;display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap}
+    .btn:hover{background:#2b3550;border-color:#51617d}
+    .btn:active{transform:scale(.985)}
+    .btn-primary{background:#a1f0d5;color:#102820;border-color:transparent}
+    .btn-primary:hover{background:#bdffe8;border-color:transparent}
+    .btn-ghost{background:transparent;border-color:transparent;color:var(--muted)}
+    .btn-ghost:hover{background:#252d44;color:var(--text)}
+    .btn-danger{border-color:#a14b62;background:#51273b;color:#ffe3e9}
+    .btn-danger:hover{background:#673049}
+    .btn-icon{width:44px;min-width:44px;padding:0;font-size:19px}
+    .top-actions{display:flex;gap:5px;align-items:center}
+    .hero{background:linear-gradient(120deg,rgba(39,65,67,.78),rgba(34,38,76,.94));border:1px solid #40506a;border-radius:23px;padding:22px;box-shadow:var(--shadow);margin-bottom:21px;overflow:hidden;position:relative}
+    .hero:after{content:"✦";position:absolute;right:16px;top:2px;color:rgba(156,230,201,.14);font-size:125px;line-height:1;pointer-events:none}
+    .hero-top,.hero-bottom{display:flex;justify-content:space-between;align-items:center;gap:12px;position:relative;z-index:1}
+    .eyebrow{font-size:12px;color:#b6dccc;font-weight:700;letter-spacing:.05em}
+    .hero-number{font-size:37px;font-weight:850;letter-spacing:-.055em;line-height:1.3}
+    .hero-number span{font-size:17px;color:#bbc7dc;font-weight:600;letter-spacing:0}
+    .hero-note{font-size:12px;color:#bcc8df;margin:4px 0 0}
+    .hero-meter{width:92px;height:92px;border-radius:50%;background:conic-gradient(var(--accent) var(--pct),rgba(255,255,255,.1) 0);display:grid;place-items:center;flex:none}
+    .hero-meter:before{content:"";position:absolute;width:72px;height:72px;border-radius:50%;background:#23334a}
+    .hero-pct{z-index:1;font-weight:850;font-size:22px}
+    .bar{height:7px;background:#303950;border-radius:99px;overflow:hidden}
+    .bar>span{display:block;height:100%;background:linear-gradient(90deg,#74d6c0,#b1f4cf);border-radius:inherit;transition:width .2s}
+    .hero-bottom{margin-top:15px}
+    .status-pill{font-size:12px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);color:#d7e3f3;padding:7px 11px;border-radius:99px}
+    .section-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:18px 0 12px}
+    .section-title{margin:0;font-size:17px;letter-spacing:-.02em}
+    .section-meta{font-size:12px;color:var(--muted)}
+    .toolbar{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap;margin-bottom:16px}
+    .segments{display:flex;gap:3px;padding:4px;border:1px solid var(--line);background:#131a2f;border-radius:13px;max-width:100%;overflow-x:auto}
+    .segment{border:0;background:transparent;color:#aab6d1;border-radius:9px;padding:9px 12px;min-height:38px;white-space:nowrap;font-size:12px;font-weight:700}
+    .segment.active{background:#36435d;color:#fff}
+    .mini-toggle{display:flex;align-items:center;gap:8px;color:#c6cee0;font-size:12px;user-select:none;cursor:pointer}
+    .mini-toggle input{appearance:none;background:#242d45;width:35px;height:21px;border-radius:20px;border:1px solid #52607a;position:relative;margin:0}
+    .mini-toggle input:before{content:"";position:absolute;background:#bdc7df;border-radius:50%;width:15px;height:15px;left:2px;top:2px;transition:transform .2s}
+    .mini-toggle input:checked{background:#477f77;border-color:#7fdac2}
+    .mini-toggle input:checked:before{transform:translateX(14px);background:#f5fff9}
+    .games{display:flex;flex-direction:column;gap:14px}
+    .game{background:var(--card);border:1px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:0 9px 34px rgba(0,0,0,.1)}
+    .game.is-done{border-color:#47665e}
+    .game-head{display:flex;align-items:center;gap:12px;padding:15px 15px 12px}
+    .game-emoji{width:49px;min-width:49px;height:49px;border-radius:14px;background:var(--game-tone,#364966);display:grid;place-items:center;font-size:26px}
+    .game-heading{min-width:0;flex:1}
+    .game-name{font-weight:800;font-size:17px;line-height:1.25;overflow-wrap:anywhere}
+    .game-meta{font-size:11px;color:#a8b4ce;margin-top:5px}
+    .game-head-buttons{display:flex;gap:2px;align-items:center}
+    .game-mini{color:#b4bed4;border:0;background:transparent;padding:4px;border-radius:10px;min-width:36px;height:38px;font-size:21px}
+    .game-mini:hover{background:#2c3550}
+    .game-body{padding:0 15px 15px}
+    .game-progress{display:flex;align-items:center;gap:11px;margin:0 0 13px}
+    .game-progress .bar{flex:1;height:6px}
+    .game-progress-text{font-size:11px;color:#c4cee1;white-space:nowrap;min-width:52px;text-align:right}
+    .task-list{display:flex;flex-direction:column;gap:7px}
+    .task{display:flex;align-items:center;gap:8px;background:#202841;border:1px solid #2b3551;border-radius:12px;min-height:52px;padding:6px 7px 6px 10px}
+    .task.is-checked{background:#1a302e;border-color:#325a4f}
+    .task-check{border:0;background:transparent;color:#eff5ff;display:flex;align-items:center;gap:12px;min-width:0;flex:1;text-align:left;padding:5px 0;min-height:40px}
+    .check-box{display:grid;place-items:center;width:23px;height:23px;flex:none;border:2px solid #75839e;border-radius:7px;font-size:15px;color:#0b3427;font-weight:900}
+    .is-checked .check-box{background:#a0f0d5;border-color:#a0f0d5}
+    .task-name{font-size:14px;overflow-wrap:anywhere}
+    .is-checked .task-name{text-decoration:line-through;color:#9eb7b4}
+    .task-tag{font-size:10px;color:#b8c3dd;border:1px solid #41506e;padding:3px 7px;border-radius:7px;flex:none}
+    .task-edit{width:34px;height:37px;flex:none;border:0;background:transparent;color:#bdc7e0;border-radius:9px;font-size:19px}
+    .task-edit:hover{background:#35415c}
+    .add-task{margin-top:10px;border:1px dashed #56637e;background:transparent;color:#b9e0d7;width:100%;padding:11px;border-radius:12px;min-height:43px;font-size:13px;font-weight:700}
+    .add-task:hover{background:#233940}
+    .no-tasks{padding:12px 5px;color:var(--muted);font-size:13px;text-align:center}
+    .game-closed .game-body{display:none}
+    .game-closed .game-head{padding-bottom:15px}
+    .empty{border:1px dashed #485670;background:#171d31;border-radius:19px;padding:32px 20px;text-align:center;color:var(--muted)}
+    .empty .empty-icon{font-size:43px;line-height:1.3}
+    .empty h2{color:#edf3ff;margin:10px 0 7px;font-size:20px}
+    .empty p{font-size:13px;max-width:330px;margin:0 auto 18px;line-height:1.8}
+    .footer{text-align:center;font-size:11px;color:#8d9ab5;margin-top:26px;line-height:1.9}
+    .footer button{color:#b3ded6;border:0;background:transparent;text-decoration:underline;text-underline-offset:3px;padding:5px}
+    .modal-overlay{position:fixed;inset:0;z-index:30;display:flex;align-items:flex-end;justify-content:center;background:rgba(4,8,19,.74);backdrop-filter:blur(5px)}
+    .modal{width:100%;max-width:550px;max-height:min(89dvh,820px);overflow:auto;background:#1b233b;border:1px solid #485573;border-radius:22px 22px 0 0;padding:20px 19px max(24px,env(safe-area-inset-bottom));box-shadow:0 -12px 50px rgba(0,0,0,.5)}
+    .modal-header{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:17px}
+    .modal-header h2{font-size:20px;margin:0}
+    .field{margin-bottom:16px}
+    .field label{display:block;color:#dfe6f5;font-size:13px;font-weight:700;margin-bottom:8px}
+    .field .hint{font-size:11px;color:#aab7d2;margin-top:6px;line-height:1.6}
+    .input{width:100%;min-height:46px;background:#111a2d;color:#f6f8ff;border:1px solid #495773;border-radius:12px;padding:11px 13px;font-size:16px;outline:none}
+    .input:focus{border-color:#9ce9d3;box-shadow:0 0 0 3px rgba(156,233,211,.12)}
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .swatches{display:flex;flex-wrap:wrap;gap:9px}
+    .swatch{width:34px;height:34px;border:3px solid transparent;border-radius:11px}
+    .swatch.selected{outline:2px solid white;outline-offset:2px}
+    .modal-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:20px}
+    .modal-actions .btn-primary{flex:1}
+    .section-help{color:#b9c7dd;font-size:12px;line-height:1.8;margin:0 0 17px}
+    .settings-group{padding:14px 0;border-top:1px solid #33405c}
+    .settings-group h3{font-size:14px;margin:0 0 7px}
+    .settings-group p{font-size:12px;color:#acb9d3;line-height:1.8;margin:0 0 12px}
+    .settings-group .btn{margin:2px 4px 3px 0}
+    .note{font-size:11px;color:#a8b8ce}
+    #toast{position:fixed;left:50%;bottom:max(28px,env(safe-area-inset-bottom));transform:translateX(-50%) translateY(18px);background:#d4fbe7;color:#163c2c;font-size:13px;font-weight:750;padding:12px 18px;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.35);z-index:50;opacity:0;pointer-events:none;transition:transform .18s,opacity .18s;max-width:90vw;text-align:center}
+    #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+    .sr-only{position:absolute!important;height:1px;width:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+    @media(min-width:650px){.container{padding-top:35px}.hero{padding:27px 32px}.hero-number{font-size:43px}.modal-overlay{align-items:center}.modal{border-radius:20px;max-height:86dvh}.game-head{padding:18px 21px 14px}.game-body{padding:0 21px 20px}}
+    @media(max-width:370px){.container{padding-left:12px;padding-right:12px}.header{gap:6px}.brand{gap:8px}.brand-mark{width:42px;height:42px;min-width:42px}.top-actions .btn-primary{font-size:12px;padding-left:9px;padding-right:9px}.game-head{gap:8px}.game-emoji{width:43px;min-width:43px;height:43px}}
+    @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important}}
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">🎮</div>
+        <div>
+          <h1>デイリーボード</h1>
+          <div class="subtitle" id="headerDate">今日のクエストを確認しよう</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button class="btn btn-icon" id="settingsButton" type="button" aria-label="設定とバックアップ" title="設定とバックアップ">⚙</button>
+        <button class="btn btn-primary" id="newGameButton" type="button">＋ ゲーム</button>
+      </div>
+    </header>
+    <section class="hero" aria-label="達成状況">
+      <div class="hero-top">
+        <div>
+          <div class="eyebrow">TODAY'S QUESTS</div>
+          <div class="hero-number" id="totalStats">0 <span>/ 0 完了</span></div>
+          <div class="hero-note" id="heroNote">ゲームを追加して始めましょう</div>
+        </div>
+        <div class="hero-meter" id="heroMeter" style="--pct:0%"><span class="hero-pct" id="heroPercent">0%</span></div>
+      </div>
+      <div class="hero-bottom">
+        <span class="status-pill" id="dailyInfo">☀ デイリーとウィークリーを管理</span>
+      </div>
+    </section>
+    <div class="section-row">
+      <h2 class="section-title">マイゲーム <span class="section-meta" id="gameCount">0 件</span></h2>
+      <button class="btn btn-ghost" id="collapseButton" type="button">すべて閉じる</button>
+    </div>
+    <div class="toolbar">
+      <div class="segments" role="group" aria-label="日課の種類">
+        <button class="segment active" data-filter="all" aria-pressed="true">すべて</button>
+        <button class="segment" data-filter="daily" aria-pressed="false">デイリー</button>
+        <button class="segment" data-filter="weekly" aria-pressed="false">ウィークリー</button>
+        <button class="segment" data-filter="once" aria-pressed="false">固定</button>
+      </div>
+      <label class="mini-toggle"><input type="checkbox" id="hideDone">未完了のみ</label>
+    </div>
+    <div id="games" class="games" aria-live="polite"></div>
+    <footer class="footer">
+      チェックはこのブラウザに自動保存されます。<br>
+      <button type="button" id="backupFooter">バックアップ・使い方</button><br>
+      ※データは端末間で自動同期されません。
+    </footer>
+  </main>
+  <div id="modalRoot"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <input id="importFile" class="sr-only" type="file" accept=".json,application/json">
+  <script>
+  'use strict';
+  (() => {
+    const STORAGE_KEY = 'daily-board-games-v1';
+    const SETTINGS_KEY = 'daily-board-preferences-v1';
+    const PALETTE = ['#365f66','#5b4a83','#66536d','#655c45','#3f617b','#4d665b'];
+    const dayNames = ['日','月','火','水','木','金','土'];
+    const repeatNames = {daily:'デイリー',weekly:'ウィークリー',once:'固定'};
+    const $ = selector => document.querySelector(selector);
+    const escapeHTML = x => String(x ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const newId = () => (typeof crypto!=='undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'id_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2);
+    const safeTime = t => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(t)) ? t : '05:00';
+    const safeColor = c => PALETTE.includes(c) ? c : PALETTE[0];
+    const safeDay = d => Number.isInteger(+d) && +d>=0 && +d<=6 ? +d : 1;
+    const validRepeat = t => ['daily','weekly','once'].includes(t) ? t : 'daily';
+    const makeTask = (title,repeat='daily')=>({id:newId(),title,repeat,doneKeys:[]});
+    let games=[];
+    let prefs={filter:'all',hideDone:false};
+    let collapsed=new Set();
+    let lastSignature='';
+    let toastTimer;
+
+    function load(){
+      try{
+        const raw=localStorage.getItem(STORAGE_KEY);
+        if(raw){games=normalize(JSON.parse(raw)).games;}
+      }catch(err){console.warn('保存データを読み込めませんでした',err);notice('保存データを読み込めませんでした。バックアップをご確認ください。');}
+      try{
+        const p=JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}');
+        prefs={filter:['all','daily','weekly','once'].includes(p.filter)?p.filter:'all',hideDone:!!p.hideDone};
+      }catch(_){/* default view */}
+    }
+    function normalize(obj){
+      if(!obj || !Array.isArray(obj.games)) throw new Error('正しいデイリーボードのデータではありません');
+      const used=new Set();
+      function unique(v){let s=typeof v==='string'&&v.trim()?v:newId();if(used.has(s))s=newId();used.add(s);return s;}
+      return {games:obj.games.slice(0,200).map(g=>({
+        id:unique(g.id),
+        name:String(g.name||'名称未設定').slice(0,60),
+        icon:String(g.icon||'🎮').slice(0,12),
+        color:safeColor(g.color),
+        resetTime:safeTime(g.resetTime),
+        weeklyDay:safeDay(g.weeklyDay),
+        tasks:(Array.isArray(g.tasks)?g.tasks:[]).slice(0,600).map(t=>({
+          id:unique(t.id),title:String(t.title||'無題の日課').slice(0,120),
+          repeat:validRepeat(t.repeat),
+          doneKeys:Array.isArray(t.doneKeys)?t.doneKeys.filter(x=>typeof x==='string' && (/^\d{4}-\d{2}-\d{2}$/.test(x)||x==='once')).slice(-400):
+            (typeof t.doneKey==='string'&&t.doneKey?[t.doneKey]:[])
+        }))
+      }))};
+    }
+    function save(){
+      try{localStorage.setItem(STORAGE_KEY,JSON.stringify({version:1,games}));return true}
+      catch(err){console.error(err);notice('保存できませんでした。空き容量やブラウザ設定を確認してください。');return false}
+    }
+    function savePrefs(){try{localStorage.setItem(SETTINGS_KEY,JSON.stringify(prefs));}catch(_){}}
+    const ymd = date => [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
+    function cycleKey(game,repeat,now=new Date()){
+      if(repeat==='once')return 'once';
+      const time=safeTime(game.resetTime).split(':').map(Number);
+      const current=now.getHours()*60+now.getMinutes();
+      const boundary=time[0]*60+time[1];
+      const date=new Date(now.getFullYear(),now.getMonth(),now.getDate(),12);
+      if(current<boundary)date.setDate(date.getDate()-1);
+      if(repeat==='weekly'){
+        const diff=(date.getDay()-safeDay(game.weeklyDay)+7)%7;
+        date.setDate(date.getDate()-diff);
+      }
+      return ymd(date);
+    }
+    function isDone(game,task,now=new Date()){
+      return task.doneKeys.includes(cycleKey(game,task.repeat,now));
+    }
+    function remaining(game,repeat,now=new Date()){
+      const [h,m]=safeTime(game.resetTime).split(':').map(Number);
+      const d=new Date(now.getFullYear(),now.getMonth(),now.getDate(),h,m,0,0);
+      if(repeat==='weekly'){
+        d.setDate(d.getDate()+(safeDay(game.weeklyDay)-d.getDay()+7)%7);
+      }
+      if(d.getTime()<=now.getTime())d.setDate(d.getDate()+(repeat==='weekly'?7:1));
+      const mins=Math.ceil((d-now)/60000);
+      const days=Math.floor(mins/1440),hours=Math.floor(mins%1440/60),minutes=mins%60;
+      return days>0?`${days}日${hours}時間`:`${hours}時間${minutes}分`;
+    }
+    function visibleTasks(g){return g.tasks.filter(t=>prefs.filter==='all'||t.repeat===prefs.filter)}
+    function taskStats(tasks,g,now=new Date()){
+      return {total:tasks.length,done:tasks.filter(t=>isDone(g,t,now)).length};
+    }
+    function fullStats(now=new Date()){
+      let done=0,total=0,finishedGames=0;
+      for(const g of games){
+        const active=g.tasks.filter(t=>t.repeat!=='once');
+        const s=taskStats(active,g,now);
+        done+=s.done;total+=s.total;
+        if(s.total>0 && s.done===s.total)finishedGames++;
+      }
+      return {done,total,finishedGames};
+    }
+    function signature(now=new Date()){
+      return games.map(g=>g.id+':'+cycleKey(g,'daily',now)+':'+cycleKey(g,'weekly',now)).join('|');
+    }
+    function notice(msg){
+      const node=$('#toast');if(!node)return;
+      node.textContent=msg;node.classList.add('show');clearTimeout(toastTimer);
+      toastTimer=setTimeout(()=>node.classList.remove('show'),2700);
+    }
+    function render(now=new Date()){
+      lastSignature=signature(now);
+      $('#headerDate').textContent=new Intl.DateTimeFormat('ja-JP',{month:'long',day:'numeric',weekday:'long'}).format(now);
+      const s=fullStats(now),percentage=s.total?Math.round(s.done/s.total*100):0;
+      $('#totalStats').innerHTML=`${s.done} <span>/ ${s.total} 完了</span>`;
+      $('#heroNote').textContent=games.length?`${s.finishedGames} / ${games.length} ゲームの日課を完了`:'まずはゲームを追加してみましょう';
+      $('#heroPercent').textContent=`${percentage}%`;
+      $('#heroMeter').style.setProperty('--pct',percentage+'%');
+      $('#dailyInfo').textContent=s.total>0&&s.done===s.total?'✨ すべての日課を達成！':'☀ デイリー・ウィークリーは更新時刻にリセット';
+      $('#gameCount').textContent=`${games.length} 件`;
+      $('#hideDone').checked=prefs.hideDone;
+      document.querySelectorAll('[data-filter]').forEach(btn=>{
+        const active=btn.dataset.filter===prefs.filter;
+        btn.classList.toggle('active',active);btn.setAttribute('aria-pressed',String(active));
+      });
+      const allCollapsed=games.length>0 && games.every(g=>collapsed.has(g.id));
+      $('#collapseButton').textContent=allCollapsed?'すべて開く':'すべて閉じる';
+      $('#collapseButton').style.display=games.length?'':'none';
+      const wrap=$('#games');
+      if(!games.length){
+        wrap.innerHTML=`<div class="empty"><div class="empty-icon">🗓️</div><h2>日課の管理を始めよう</h2><p>ゲームと日課を一度登録すれば、あとは毎日チェックするだけ。更新時刻に合わせて自動で未完了に戻ります。</p><button class="btn btn-primary" data-action="new-game">＋ 最初のゲームを登録</button><p style="margin:16px auto 0;font-size:11px">試したい場合は「設定」からサンプルを追加できます。</p></div>`;
+        return;
+      }
+      const list=games.map(g=>{
+        const matching=visibleTasks(g);
+        const shown=prefs.hideDone?matching.filter(t=>!isDone(g,t,now)):matching;
+        const progress=taskStats(matching,g,now);
+        const pct=progress.total?Math.round(progress.done/progress.total*100):0;
+        const complete=progress.total>0 && progress.done===progress.total;
+        const closed=collapsed.has(g.id);
+        const rows=shown.map(t=>{
+          const done=isDone(g,t,now);
+          const label=t.repeat==='daily'?'毎日':t.repeat==='weekly'?'毎週':'固定';
+          return `<div class="task ${done?'is-checked':''}">
+            <button class="task-check" type="button" data-action="toggle-task" data-game="${escapeHTML(g.id)}" data-task="${escapeHTML(t.id)}" role="checkbox" aria-checked="${done}" aria-label="${escapeHTML(t.title)} ${done?'完了':'未完了'}">
+              <span class="check-box" aria-hidden="true">${done?'✓':''}</span><span class="task-name">${escapeHTML(t.title)}</span>
+            </button>
+            <span class="task-tag">${label}</span>
+            <button type="button" class="task-edit" data-action="edit-task" data-game="${escapeHTML(g.id)}" data-task="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)}を編集">⋯</button>
+          </div>`;
+        }).join('');
+        return `<section class="game ${complete?'is-done':''} ${closed?'game-closed':''}" data-id="${escapeHTML(g.id)}">
+          <div class="game-head">
+            <span class="game-emoji" style="--game-tone:${safeColor(g.color)}" aria-hidden="true">${escapeHTML(g.icon)}</span>
+            <div class="game-heading"><div class="game-name">${escapeHTML(g.name)}</div><div class="game-meta">毎日 ${g.resetTime} 更新 ｜ 毎週 ${dayNames[g.weeklyDay]}曜更新</div></div>
+            <div class="game-head-buttons">
+              <button class="game-mini" type="button" data-action="edit-game" data-game="${escapeHTML(g.id)}" aria-label="${escapeHTML(g.name)}の設定">⚙</button>
+              <button class="game-mini" type="button" data-action="collapse" data-game="${escapeHTML(g.id)}" aria-expanded="${!closed}" aria-label="${escapeHTML(g.name)}の項目を${closed?'表示':'閉じる'}">${closed?'⌄':'⌃'}</button>
+            </div>
+          </div>
+          <div class="game-body">
+            <div class="game-progress"><div class="bar"><span style="width:${pct}%"></span></div><span class="game-progress-text">${progress.done} / ${progress.total} ${complete?'✓':''}</span></div>
+            <div class="task-list">${rows || `<div class="no-tasks">${prefs.hideDone&&matching.length?'表示する未完了の日課はありません 🌟':matching.length?'この種類の日課はありません':'日課を追加しましょう'}</div>`}</div>
+            <button class="add-task" data-action="new-task" data-game="${escapeHTML(g.id)}" type="button">＋ 日課を追加</button>
+          </div>
+        </section>`;
+      });
+      wrap.innerHTML=list.join('');
+    }
+    function modal(html){
+      $('#modalRoot').innerHTML=`<div class="modal-overlay" id="overlay"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">${html}</section></div>`;
+      document.body.style.overflow='hidden';
+      const input=$('#overlay [autofocus]');if(input)setTimeout(()=>input.focus({preventScroll:true}),50);
+    }
+    function closeModal(){
+      $('#modalRoot').innerHTML='';document.body.style.overflow='';
+    }
+    function gameModal(id=null){
+      const g=id?games.find(x=>x.id===id):null;
+      const color=g?g.color:PALETTE[0];
+      modal(`<div class="modal-header"><h2 id="modalTitle">${g?'ゲームを編集':'ゲームを追加'}</h2><button type="button" class="btn btn-icon btn-ghost" data-action="close-modal" aria-label="閉じる">×</button></div>
+        <form id="gameForm" data-id="${g?escapeHTML(g.id):''}">
+          <div class="field"><label for="gameName">ゲーム名</label><input id="gameName" class="input" required maxlength="60" placeholder="例：ゲームA" value="${escapeHTML(g?g.name:'')}" autofocus></div>
+          <div class="form-grid">
+            <div class="field"><label for="gameIcon">アイコン（絵文字）</label><input id="gameIcon" class="input" maxlength="12" value="${escapeHTML(g?g.icon:'🎮')}" placeholder="🎮"></div>
+            <div class="field"><label for="resetTime">毎日の更新時刻</label><input id="resetTime" class="input" type="time" required value="${g?g.resetTime:'05:00'}"></div>
+          </div>
+          <div class="field"><label for="weeklyDay">毎週の更新曜日</label><select id="weeklyDay" class="input">${[1,2,3,4,5,6,0].map(d=>`<option value="${d}" ${g&&g.weeklyDay===d?'selected':!g&&d===1?'selected':''}>${dayNames[d]}曜日</option>`).join('')}</select><div class="hint">ウィークリーも、上の更新時刻に切り替わります。</div></div>
+          <div class="field"><label>カードの色</label><div class="swatches">${PALETTE.map(c=>`<button class="swatch ${color===c?'selected':''}" type="button" data-action="select-color" data-color="${c}" style="background:${c}" aria-label="色を選択" aria-pressed="${color===c}"></button>`).join('')}</div><input type="hidden" id="gameColor" value="${color}"></div>
+          <div class="modal-actions">${g?`<button type="button" class="btn btn-danger" data-action="delete-game" data-game="${escapeHTML(g.id)}">削除</button>`:''}<button class="btn btn-primary" type="submit">${g?'変更を保存':'ゲームを登録'}</button></div>
+        </form>`);
+    }
+    function taskModal(gameId,taskId=null){
+      const g=games.find(x=>x.id===gameId);if(!g)return;
+      const t=taskId?g.tasks.find(x=>x.id===taskId):null;
+      modal(`<div class="modal-header"><h2 id="modalTitle">${t?'日課を編集':'日課を追加'}</h2><button type="button" class="btn btn-icon btn-ghost" data-action="close-modal" aria-label="閉じる">×</button></div>
+        <p class="section-help">${escapeHTML(g.icon)} ${escapeHTML(g.name)}</p>
+        <form id="taskForm" data-game="${escapeHTML(g.id)}" data-id="${t?escapeHTML(t.id):''}">
+          <div class="field"><label for="taskName">内容</label><input id="taskName" class="input" maxlength="120" required placeholder="例：スタミナを消費する" value="${escapeHTML(t?t.title:'')}" autofocus></div>
+          <div class="field"><label for="taskRepeat">繰り返し</label><select id="taskRepeat" class="input"><option value="daily" ${(!t||t.repeat==='daily')?'selected':''}>デイリー：毎日リセット</option><option value="weekly" ${t&&t.repeat==='weekly'?'selected':''}>ウィークリー：毎週リセット</option><option value="once" ${t&&t.repeat==='once'?'selected':''}>固定：自動リセットしない</option></select><div class="hint">「固定」はイベントや交換期限などに使えます。完了後もチェックが残り、手動で解除できます。</div></div>
+          <div class="modal-actions">${t?`<button class="btn btn-danger" type="button" data-action="delete-task" data-game="${escapeHTML(g.id)}" data-task="${escapeHTML(t.id)}">削除</button>`:''}<button class="btn btn-primary" type="submit">${t?'変更を保存':'日課を登録'}</button></div>
+        </form>`);
+    }
+    function settingsModal(){
+      modal(`<div class="modal-header"><h2 id="modalTitle">設定・バックアップ</h2><button type="button" class="btn btn-icon btn-ghost" data-action="close-modal" aria-label="閉じる">×</button></div>
+        <p class="section-help">すべての操作は端末内で完結します。ログイン不要、広告なし、通信不要です。</p>
+        <div class="settings-group"><h3>💾 データを守る</h3><p>このブラウザの保存領域に自動保存しています。ブラウザのデータ削除や端末変更に備え、定期的にJSONバックアップを保存してください。</p><button class="btn btn-primary" data-action="export" type="button">⬇ バックアップ保存</button><button class="btn" type="button" data-action="import">⬆ バックアップ復元</button><p class="note">復元すると、現在のゲームと日課はバックアップの内容で置き換わります。</p></div>
+        <div class="settings-group"><h3>🔄 自動リセットについて</h3><p>ゲームごとに設定した時刻・曜日を過ぎると、対応する日課が自動で未完了扱いになります。ページを開きっぱなしでなくても、次回表示時に反映されます。更新時刻はスマホ本体の時刻とタイムゾーンを基準にします。</p></div>
+        <div class="settings-group"><h3>📱 スマホでの使い方</h3><p>安定して使うには、このHTMLをHTTPSの静的サイトとして公開してSafariで開き、「共有」→「ホーム画面に追加」がおすすめです。iPhoneの「ファイル」アプリのプレビューなどでは保存が安定しない場合があります。</p></div>
+        <div class="settings-group"><h3>🧪 お試し用データ</h3><p>まだゲームを登録していなければ、サンプルのゲームを追加して操作を試せます。</p><button class="btn" type="button" data-action="sample">サンプルを追加</button></div>`);
+    }
+    function addSample(){
+      if(games.length&&!confirm('サンプルゲームを追加しますか？ 既存のゲームはそのまま残ります。'))return;
+      games.push({id:newId(),name:'サンプルゲーム',icon:'🌟',color:PALETTE[1],resetTime:'05:00',weeklyDay:1,
+        tasks:[makeTask('ログイン報酬を受け取る'),makeTask('デイリー任務をクリア'),makeTask('スタミナ消費'),makeTask('週ボスの報酬を回収','weekly')]});
+      save();closeModal();render();notice('サンプルを追加しました');
+    }
+    function handleToggle(gameId,taskId){
+      const g=games.find(x=>x.id===gameId);const t=g?.tasks.find(x=>x.id===taskId);if(!t)return;
+      const key=cycleKey(g,t.repeat);const found=t.doneKeys.indexOf(key);
+      if(found>=0)t.doneKeys.splice(found,1);
+      else t.doneKeys.push(key);
+      if(t.doneKeys.length>400)t.doneKeys=t.doneKeys.slice(-400);
+      save();render();
+    }
+    function exportData(){
+      const blob=new Blob([JSON.stringify({app:'デイリーボード',version:1,exportedAt:new Date().toISOString(),games},null,2)],{type:'application/json;charset=utf-8'});
+      const url=URL.createObjectURL(blob);
+      const link=document.createElement('a');link.href=url;link.download=`daily-board-backup-${ymd(new Date())}.json`;
+      document.body.appendChild(link);link.click();link.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),30000);
+      notice('バックアップファイルを作成しました');
+    }
+    async function importData(file){
+      if(!file)return;
+      if(file.size>8_000_000){notice('ファイルが大きすぎます');return}
+      try{
+        const obj=JSON.parse(await file.text());const normalized=normalize(obj);
+        if(!confirm(`${normalized.games.length} 件のゲームを復元します。現在のデータは上書きされます。続けますか？`))return;
+        games=normalized.games;collapsed.clear();save();closeModal();render();notice('バックアップを復元しました');
+      }catch(err){console.error(err);alert('バックアップを読み込めませんでした。正しいJSONファイルか確認してください。');}
+    }
+    document.addEventListener('click',event=>{
+      const btn=event.target.closest('[data-action]');
+      if(!btn){if(event.target.id==='overlay')closeModal();return;}
+      const a=btn.dataset.action,g=btn.dataset.game,t=btn.dataset.task;
+      if(a==='close-modal')closeModal();
+      if(a==='new-game')gameModal();
+      if(a==='edit-game')gameModal(g);
+      if(a==='new-task')taskModal(g);
+      if(a==='edit-task')taskModal(g,t);
+      if(a==='toggle-task')handleToggle(g,t);
+      if(a==='collapse'){collapsed.has(g)?collapsed.delete(g):collapsed.add(g);render()}
+      if(a==='select-color'){
+        $('#gameColor').value=btn.dataset.color;
+        document.querySelectorAll('.swatch').forEach(s=>{const active=s===btn;s.classList.toggle('selected',active);s.setAttribute('aria-pressed',String(active))});
+      }
+      if(a==='delete-game'){
+        const target=games.find(x=>x.id===g);
+        if(target&&confirm(`「${target.name}」と登録された日課をすべて削除しますか？\nこの操作は取り消せません。`)){
+          games=games.filter(x=>x.id!==g);collapsed.delete(g);save();closeModal();render();notice('ゲームを削除しました');
+        }
+      }
+      if(a==='delete-task'){
+        const target=games.find(x=>x.id===g),task=target?.tasks.find(x=>x.id===t);
+        if(target&&task&&confirm(`「${task.title}」を削除しますか？`)){
+          target.tasks=target.tasks.filter(x=>x.id!==t);save();closeModal();render();notice('日課を削除しました');
+        }
+      }
+      if(a==='export')exportData();
+      if(a==='import')$('#importFile').click();
+      if(a==='sample')addSample();
+    });
+    document.addEventListener('submit',event=>{
+      event.preventDefault();
+      if(event.target.id==='gameForm'){
+        const id=event.target.dataset.id,name=$('#gameName').value.trim();
+        if(!name){notice('ゲーム名を入力してください');return}
+        const payload={name,icon:$('#gameIcon').value.trim()||'🎮',color:safeColor($('#gameColor').value),resetTime:safeTime($('#resetTime').value),weeklyDay:safeDay($('#weeklyDay').value)};
+        if(id){const g=games.find(x=>x.id===id);if(g)Object.assign(g,payload)}
+        else games.push({id:newId(),...payload,tasks:[]});
+        save();closeModal();render();notice(id?'ゲームを更新しました':'ゲームを追加しました');
+      }
+      if(event.target.id==='taskForm'){
+        const gameId=event.target.dataset.game,taskId=event.target.dataset.id;
+        const g=games.find(x=>x.id===gameId);if(!g)return;
+        const title=$('#taskName').value.trim(),repeat=validRepeat($('#taskRepeat').value);
+        if(!title){notice('日課の内容を入力してください');return}
+        if(taskId){
+          const task=g.tasks.find(x=>x.id===taskId);
+          if(task){if(task.repeat!==repeat)task.doneKeys=[];task.title=title;task.repeat=repeat}
+        }else g.tasks.push(makeTask(title,repeat));
+        save();closeModal();collapsed.delete(gameId);render();notice(taskId?'日課を更新しました':'日課を追加しました');
+      }
+    });
+    document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#overlay'))closeModal()});
+    $('#newGameButton').addEventListener('click',()=>gameModal());
+    $('#settingsButton').addEventListener('click',settingsModal);
+    $('#backupFooter').addEventListener('click',settingsModal);
+    $('#importFile').addEventListener('change',async event=>{await importData(event.target.files?.[0]);event.target.value=''});
+    $('#collapseButton').addEventListener('click',()=>{
+      const allCollapsed=games.length&&games.every(g=>collapsed.has(g.id));
+      collapsed=allCollapsed?new Set():new Set(games.map(g=>g.id));render();
+    });
+    document.querySelectorAll('[data-filter]').forEach(btn=>btn.addEventListener('click',()=>{
+      prefs.filter=btn.dataset.filter;savePrefs();render();
+    }));
+    $('#hideDone').addEventListener('change',event=>{prefs.hideDone=event.target.checked;savePrefs();render()});
+    load();render();
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)render()});
+    window.addEventListener('focus',()=>render());
+    setInterval(()=>{
+      const now=new Date();
+      if(!document.hidden && (signature(now)!==lastSignature))render(now);
+      else if(!document.hidden)$('#headerDate').textContent=new Intl.DateTimeFormat('ja-JP',{month:'long',day:'numeric',weekday:'long'}).format(now);
+    },15000);
+  })();
+  </script>
+</body>
+</html>
