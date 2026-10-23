@@ -1,6 +1,7 @@
 /* GitHub Pages 側通知設定・同期。許可後のみ端末からCloudflareへ送信します。 */
 (() => {
   'use strict';
+  window.DAILY_BOARD_PUSH_CLIENT_LOADED = true;
   const API = String(window.DAILY_BOARD_PUSH_API || '').replace(/\/$/, '');
   const READY = /^https:\/\/[^\s/]+\.workers\.dev$/.test(API) && !API.includes('YOUR-');
   const KEY_ENABLED = 'daily-board-push-enabled-v1';
@@ -39,11 +40,21 @@
   }
   async function req(path,method='GET',data=null) {
     if (!READY) throw Error('先に push-config.js の Worker URL を設定してください');
-    const res = await fetch(API+path, {
-      method, headers: { 'Content-Type':'application/json', 'X-Device-Token':token() },
-      ...(data ? {body:JSON.stringify(data)} : {}),
-      cache: 'no-store',
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    let res;
+    try {
+      res = await fetch(API+path, {
+        method, headers: { 'Content-Type':'application/json', 'X-Device-Token':token() },
+        ...(data ? {body:JSON.stringify(data)} : {}),
+        cache: 'no-store', signal: controller.signal,
+      });
+    } catch(e) {
+      if (e?.name === 'AbortError') throw Error('サーバーの応答が15秒以内にありませんでした');
+      throw Error('通知サーバーに接続できませんでした。Worker URL・通信・ALLOWED_ORIGINを確認してください');
+    } finally {
+      clearTimeout(timeout);
+    }
     let result;
     try {result=await res.json();} catch {throw Error('通知サーバーの応答を読み取れませんでした');}
     if (!res.ok) throw Error(result.error || `通知サーバーのエラー (${res.status})`);
@@ -54,7 +65,8 @@
     if (node) { node.textContent=message;node.style.color=problem?'#ffbdbd':'#a1f0d5'; }
   }
   function renderButtons() {
-    const toggle = $('pushToggleButton'), test = $('pushTestButton');
+    const toggle = $('pushToggleButton'), test = $('pushTestButton'), invite = $('pushInviteCode');
+    if (invite) invite.hidden = enabled();
     if (toggle) {
       toggle.textContent=enabled()?'🔕 通知を停止':'🔔 通知を有効にする';
       toggle.disabled=busy || !READY || !supportsPush();
@@ -73,12 +85,22 @@
     if (!enabled() || !READY || !supportsPush() || !navigator.onLine) return;
     const subscription = await currentSubscription();
     if (!subscription) { localStorage.removeItem(KEY_ENABLED);renderButtons();return; }
-    await req('/api/sync','POST',{
-      subscription: subscription.toJSON(),
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Tokyo',
-      games: gamesSnapshot(),
-    });
+    try {
+      await req('/api/sync','POST',{
+        subscription: subscription.toJSON(),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Tokyo',
+        games: gamesSnapshot(),
+      });
+    } catch (e) {
+      if (e.message.includes('通知登録がありません')) {
+        localStorage.removeItem(KEY_ENABLED);
+        renderButtons();
+        status('サーバーに通知登録がありません。招待コードを再入力して登録してください。', true);
+      }
+      throw e;
+    }
   }
+
   function scheduleSync() {
     if (!enabled()) return;
     clearTimeout(timer);
@@ -87,10 +109,13 @@
   async function enable() {
     if (!READY) return status('Cloudflareの設定が完了していません。',true);
     if (!supportsPush()) return status('ホーム画面のPWAで通知を有効にしてください。',true);
-    // iPhoneの要求: ユーザー操作の中で、awaitより前に許可ダイアログを呼ぶ。
+    const inviteCode = ($('pushInviteCode')?.value || '').trim();
+    if (inviteCode.length < 16) return status('管理者から受け取った招待コードを入力してください。',true);
+    // iPhoneではユーザーのボタン操作から直接許可を求める必要がある。
     const permissionPromise = Notification.permission === 'default'
       ? Notification.requestPermission() : Promise.resolve(Notification.permission);
     busy = true; renderButtons();
+    let message = '', problem = false;
     try {
       const permission = await permissionPromise;
       if (permission !== 'granted') throw Error('通知が許可されていません。iPhoneの設定を確認してください。');
@@ -100,34 +125,48 @@
       if (!subscription) subscription = await reg.pushManager.subscribe({
         userVisibleOnly:true, applicationServerKey:base64Bytes(vapidPublicKey),
       });
-      await req('/api/sync','POST',{
+      await req('/api/activate','POST',{
+        inviteCode,
         subscription:subscription.toJSON(),
         timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||'Asia/Tokyo',
         games:gamesSnapshot(),
       });
       localStorage.setItem(KEY_ENABLED,'1');
-      status('✅ 通知を有効にしました。テスト通知で確認できます。');
-    } catch(e) { status('通知の設定に失敗：'+e.message,true); }
-    finally {busy=false;renderButtons();}
+      const inviteInput=$('pushInviteCode'); if(inviteInput) inviteInput.value='';
+      message = '✅ 通知を有効にしました。テスト通知で確認できます。';
+    } catch(e) { message = '通知の設定に失敗：'+e.message; problem=true; }
+    finally {busy=false;renderButtons();status(message,problem);}
   }
   async function disable() {
     busy=true;renderButtons();
+    let message = '', problem = false;
     try {
-      // サーバー側を先に削除。ここで失敗したら端末の購読を保持し、再操作可能にする。
       await req('/api/disable','POST');
       const sub = await currentSubscription();
       if (sub) await sub.unsubscribe();
       localStorage.removeItem(KEY_ENABLED);
-      status('🔕 未完了通知を停止しました。');
-    } catch(e) { status('通知を停止できませんでした：'+e.message,true); }
-    finally {busy=false;renderButtons();}
+      message = '🔕 未完了通知を停止し、サーバー側の登録情報を削除しました。';
+    } catch(e) { message = '通知を停止できませんでした：'+e.message; problem=true; }
+    finally {busy=false;renderButtons();status(message,problem);}
   }
   async function test() {
-    busy=true;renderButtons();
-    try {await req('/api/test','POST');status('テスト通知を送信しました。iPhone側で確認してください。');}
-    catch(e) {status('テスト送信に失敗：'+e.message,true);}
-    finally {busy=false;renderButtons();}
+    if (busy) return;
+    if (!enabled()) return status('先に招待コードを入力して「通知を有効にする」を押してください。', true);
+    if (!READY) return status('push-config.js にWorker URLが設定されていません。', true);
+    if (!supportsPush()) return status('ホーム画面に追加したアプリから操作してください。', true);
+    if (Notification.permission !== 'granted') return status('iPhoneの設定で通知を許可してください。', true);
+    busy=true;renderButtons();status('⏳ テスト通知を送信中です…');
+    let message = '', problem = false;
+    try {
+      const sub = await currentSubscription();
+      if (!sub) throw Error('iPhoneに通知登録が見つかりません。通知を有効にし直してください');
+      await req('/api/test','POST');
+      message='✅ 通知サーバーからの送信が成功しました。iPhoneの通知を確認してください。';
+    } catch(e) {
+      message='テスト送信に失敗：'+(e?.message||String(e));problem=true;
+    } finally {busy=false;renderButtons();status(message,problem);}
   }
+
   document.addEventListener('click',ev=>{
     if (ev.target.closest('#pushToggleButton')) {enabled()?disable():enable();return;}
     if (ev.target.closest('#pushTestButton')) {test();return;}

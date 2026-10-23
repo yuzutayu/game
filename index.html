@@ -15,6 +15,7 @@
   <style>
     :root{color-scheme:dark;--bg:#0c1020;--card:#171d33;--card2:#1f2842;--line:#303955;--text:#f5f7ff;--muted:#a1adca;--accent:#93edce;--shadow:0 18px 56px rgba(0,0,0,.22)}
     *{box-sizing:border-box}
+    [hidden]{display:none!important}
     html{scroll-behavior:smooth}
     body{margin:0;background:radial-gradient(ellipse 90% 420px at 75% -150px,rgba(131,110,232,.24),transparent 77%),radial-gradient(ellipse 560px 380px at -90px 300px,rgba(89,175,187,.08),transparent),var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;line-height:1.5;color:var(--text);min-height:100dvh;-webkit-font-smoothing:antialiased}
     button,input,select{font:inherit}
@@ -530,7 +531,7 @@
         <p class="section-help">登録データはこの端末のブラウザ内に保存されます。画像やチェック状況を外部サーバーへ送信しません。</p>
         <div class="settings-group"><h3>💾 データを守る</h3><p>このブラウザの保存領域に自動保存しています。ブラウザのデータ削除や端末変更に備え、定期的にJSONバックアップを保存してください。</p><button class="btn btn-primary" data-action="export" type="button">⬇ バックアップ保存</button><button class="btn" type="button" data-action="import">⬆ バックアップ復元</button><p class="note">復元すると、現在のゲームと日課はバックアップの内容で置き換わります。</p></div>
         <div class="settings-group"><h3>🖼️ ゲームのアイコン</h3><p>各ゲームの設定（⚙）から好きな画像を選べます。画像は小さく加工してブラウザ内に保存し、JSONバックアップにも含まれます。元の写真をGitHubにアップロードする必要はありません。画像が多いと保存容量を使うため、時々バックアップを取ってください。</p></div>
-        <div class="settings-group"><h3>🔔 未完了通知（iPhone）</h3><p>ゲームの⚙から通知時刻を指定できます。アプリを閉じていても未完了の日課がある場合だけ、ロック画面に通知します。初回のみ通知許可が必要です。通知を有効にすると、ゲーム名・日課名・完了情報を通知用サーバーに送ります。</p><button class="btn btn-primary" id="pushToggleButton" type="button">🔔 通知を有効にする</button><button class="btn" id="pushTestButton" type="button" hidden>🧪 テスト通知</button><p class="note" id="pushStatus" role="status" style="margin-top:10px"></p></div>
+        <div class="settings-group"><h3>🔔 未完了通知（iPhone）</h3><p>ゲームの⚙から通知時刻を指定できます。アプリを閉じていても未完了の日課がある場合だけ、ロック画面に通知します。初回のみ招待コードと通知許可が必要です。ゲーム名・日課名・完了情報を通知用サーバーに送ります。招待コードは端末に保存しません。</p><label for="pushInviteCode" class="note" style="display:block;margin:0 0 7px">初回登録用の招待コード（友人から受け取ったコード）</label><input id="pushInviteCode" class="input" type="password" autocomplete="off" spellcheck="false" placeholder="通知を初めて有効にする時だけ入力" style="margin-bottom:12px"><button class="btn btn-primary" id="pushToggleButton" type="button">🔔 通知を有効にする</button><button class="btn" id="pushTestButton" type="button" hidden>🧪 テスト通知</button><p class="note" id="pushStatus" role="status" aria-live="polite" style="margin-top:10px">通知機能の読み込みを確認中です。表示が変わらない場合は push-client.js のアップロードを確認してください。</p></div>
         <div class="settings-group"><h3>🔄 自動リセットについて</h3><p>ゲームごとに設定した時刻・曜日を過ぎると、対応する日課が自動で未完了扱いになります。ページを開きっぱなしでなくても、次回表示時に反映されます。更新時刻はスマホ本体の時刻とタイムゾーンを基準にします。</p></div>
         <div class="settings-group"><h3>📱 スマホでの使い方</h3><p>安定して使うには、このHTMLをHTTPSの静的サイトとして公開してSafariで開き、「共有」→「ホーム画面に追加」がおすすめです。iPhoneの「ファイル」アプリのプレビューなどでは保存が安定しない場合があります。</p></div>
         <div class="settings-group"><h3>🧪 お試し用データ</h3><p>まだゲームを登録していなければ、サンプルのゲームを追加して操作を試せます。</p><button class="btn" type="button" data-action="sample">サンプルを追加</button></div>`);

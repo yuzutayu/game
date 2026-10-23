@@ -1,6 +1,6 @@
 // GitHub Pages のサブディレクトリで動作するデイリーボード用 Service Worker
-// アイコンなどを置き換えた後、修正時は v4 を v5 などに変更してください。
-const CACHE_NAME = 'daily-board-pwa-v4';
+// アイコンなどを置き換えた後、修正時は v6 を v7 などに変更してください。
+const CACHE_NAME = 'daily-board-pwa-v6';
 const CORE_FILES = [
   './',
   './index.html',
