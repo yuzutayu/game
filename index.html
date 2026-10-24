@@ -52,6 +52,12 @@
     .bar{height:7px;background:#303950;border-radius:99px;overflow:hidden}
     .bar>span{display:block;height:100%;background:linear-gradient(90deg,#74d6c0,#b1f4cf);border-radius:inherit;transition:width .2s}
     .hero-bottom{margin-top:15px}
+    .hero-tabs{display:flex;align-items:center;gap:4px;position:relative;z-index:2;margin:0 0 16px;padding:4px;border:1px solid rgba(255,255,255,.16);background:rgba(7,15,29,.4);border-radius:12px;width:max-content;max-width:100%}
+    .hero-tab{border:0;border-radius:9px;min-height:36px;padding:8px 13px;background:transparent;color:#cbd8e9;font-size:12px;font-weight:750;white-space:nowrap}
+    .hero-tab.active{color:#113527;background:#b0f5da}
+    .hero-tab:focus-visible{outline:3px solid #a4f6dc;outline-offset:2px}
+    .notification-mode-tip{background:#14243a;border:1px solid #39536d;border-radius:11px;padding:10px 12px;font-size:12px;color:#c8e1eb;line-height:1.7;margin:0 0 16px}
+    .notification-mode-tip strong{color:#b9f9df}
     .status-pill{font-size:12px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);color:#d7e3f3;padding:7px 11px;border-radius:99px}
     .section-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:18px 0 12px}
     .section-title{margin:0;font-size:17px;letter-spacing:-.02em}
@@ -178,9 +184,14 @@
       </div>
     </header>
     <section class="hero" aria-label="達成状況">
+      <div class="hero-tabs" role="group" aria-label="達成率の表示切り替え">
+        <button type="button" class="hero-tab active" data-summary="daily" aria-pressed="true">デイリー</button>
+        <button type="button" class="hero-tab" data-summary="weekly" aria-pressed="false">ウィークリー</button>
+        <button type="button" class="hero-tab" data-summary="all" aria-pressed="false">すべて</button>
+      </div>
       <div class="hero-top">
         <div>
-          <div class="eyebrow">TODAY'S QUESTS</div>
+          <div class="eyebrow" id="heroEyebrow">DAILY QUESTS</div>
           <div class="hero-number" id="totalStats">0 <span>/ 0 完了</span></div>
           <div class="hero-note" id="heroNote">ゲームを追加して始めましょう</div>
         </div>
@@ -240,7 +251,7 @@
     const validRepeat = t => ['daily','weekly','once'].includes(t) ? t : 'daily';
     const makeTask = (title,repeat='daily')=>({id:newId(),title,repeat,doneKeys:[]});
     let games=[];
-    let prefs={filter:'all',hideDone:false};
+    let prefs={filter:'all',hideDone:false,summaryView:'daily'};
     let collapsed=new Set();
     let lastSignature='';
     let toastTimer;
@@ -256,7 +267,7 @@
       }catch(err){console.warn('保存データを読み込めませんでした',err);notice('保存データを読み込めませんでした。バックアップをご確認ください。');}
       try{
         const p=JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}');
-        prefs={filter:['all','daily','weekly','once'].includes(p.filter)?p.filter:'all',hideDone:!!p.hideDone};
+        prefs={filter:['all','daily','weekly','once'].includes(p.filter)?p.filter:'all',hideDone:!!p.hideDone,summaryView:['daily','weekly','all'].includes(p.summaryView)?p.summaryView:'daily'};
       }catch(_){/* default view */}
       try{
         const d=JSON.parse(localStorage.getItem(REMINDERS_KEY)||'{}');
@@ -281,6 +292,7 @@
         weeklyDay:safeDay(g.weeklyDay),
         weeklyReminderTime:safeReminderTime(g.weeklyReminderTime),
         weeklyReminderDay:safeDay(g.weeklyReminderDay ?? g.weeklyDay),
+        notificationMode:g.notificationMode==='combined'?'combined':'separate',
         tasks:(Array.isArray(g.tasks)?g.tasks:[]).slice(0,600).map(t=>({
           id:unique(t.id),title:String(t.title||'無題の日課').slice(0,120),
           repeat:validRepeat(t.repeat),
@@ -322,19 +334,28 @@
       const days=Math.floor(mins/1440),hours=Math.floor(mins%1440/60),minutes=mins%60;
       return days>0?`${days}日${hours}時間`:`${hours}時間${minutes}分`;
     }
-    // デイリーとウィークリーは通知対象と頻度を完全に分ける。
-    // デイリー：更新時刻から次の更新まで。ウィークリー：指定曜日の指定時刻以降のみ。
+    // 通知は「別々」「週1回だけまとめて」を選択可能。
+    // まとめて通知の場合：設定した週課通知曜日は週課時刻に1通、他の曜日はデイリー時刻に通知。
+    function reminderRules(game,now=new Date()){
+      const dailyTime=safeReminderTime(game.reminderTime);
+      const weeklyTime=safeReminderTime(game.weeklyReminderTime);
+      const isWeeklyDay=now.getDay()===safeDay(game.weeklyReminderDay ?? game.weeklyDay);
+      if(game.notificationMode==='combined' && isWeeklyDay && weeklyTime){
+        return [{kind:'combined',time:weeklyTime}];
+      }
+      const result=[];
+      if(dailyTime)result.push({kind:'daily',time:dailyTime});
+      if(game.notificationMode!=='combined' && isWeeklyDay && weeklyTime){
+        result.push({kind:'weekly',time:weeklyTime});
+      }
+      return result;
+    }
     function reminderStatus(game,kind,now=new Date()){
-      const weekly=kind==='weekly';
-      const time=safeReminderTime(weekly?game.weeklyReminderTime:game.reminderTime);
-      if(!time)return null;
+      const rule=reminderRules(game,now).find(r=>r.kind===kind);
+      if(!rule)return null;
+      const {time}=rule;
       let key;
-      if(weekly){
-        if(now.getDay()!==safeDay(game.weeklyReminderDay ?? game.weeklyDay))return null;
-        const [h,m]=time.split(':').map(Number);
-        if(now.getHours()*60+now.getMinutes()<h*60+m)return null;
-        key='weekly|'+ymd(now)+'|'+time;
-      }else{
+      if(kind==='daily'){
         const [rh,rm]=safeTime(game.resetTime).split(':').map(Number);
         const [h,m]=time.split(':').map(Number);
         const start=new Date(now.getFullYear(),now.getMonth(),now.getDate(),rh,rm,0,0);
@@ -343,20 +364,24 @@
         if(due<start)due.setDate(due.getDate()+1);
         if(now<due)return null;
         key='daily|'+cycleKey(game,'daily',now)+'|'+time;
+      }else{
+        const [h,m]=time.split(':').map(Number);
+        if(now.getHours()*60+now.getMinutes()<h*60+m)return null;
+        key=kind+'|'+ymd(now)+'|'+time;
       }
-      const undone=game.tasks.filter(t=>t.repeat===kind&&!isDone(game,t,now));
+      const undone=game.tasks.filter(t=>(kind==='combined'?t.repeat==='daily'||t.repeat==='weekly':t.repeat===kind)&&!isDone(game,t,now));
       if(!undone.length)return null;
       if(dismissedReminders[game.id+'|'+kind]===key)return null;
       return {game,kind,undone,key,time};
     }
     function renderAlerts(now=new Date()){
       const node=$('#reminderAlerts');if(!node)return;
-      const alerts=games.flatMap(g=>['daily','weekly'].map(kind=>reminderStatus(g,kind,now))).filter(Boolean);
+      const alerts=games.flatMap(g=>reminderRules(g,now).map(r=>reminderStatus(g,r.kind,now))).filter(Boolean);
       node.hidden=!alerts.length;
       if(!alerts.length){node.innerHTML='';return}
       node.innerHTML=`<h2 class="reminder-heading">🔔 指定時刻を過ぎた未完了の日課があります</h2>`+alerts.map(({game,kind,undone,time})=>`
         <div class="reminder-item">
-          <div class="reminder-top"><div class="reminder-title">${escapeHTML(game.name)}<span class="reminder-chip">${kind==='daily'?'デイリー':'ウィークリー'} ${escapeHTML(time)}</span></div></div>
+          <div class="reminder-top"><div class="reminder-title">${escapeHTML(game.name)}<span class="reminder-chip">${kind==='daily'?'デイリー':kind==='weekly'?'ウィークリー':'まとめて'} ${escapeHTML(time)}</span></div></div>
           <div class="reminder-sub">残り ${undone.length} 件：${escapeHTML(undone.slice(0,3).map(t=>t.title).join('、'))}${undone.length>3?' ほか':''}</div>
           <div class="reminder-actions">
             <button class="btn btn-primary" type="button" data-action="show-reminder-game" data-game="${escapeHTML(game.id)}">日課を確認</button>
@@ -368,15 +393,15 @@
     function taskStats(tasks,g,now=new Date()){
       return {total:tasks.length,done:tasks.filter(t=>isDone(g,t,now)).length};
     }
-    function fullStats(now=new Date()){
-      let done=0,total=0,finishedGames=0;
+    function fullStats(now=new Date(),view='all'){
+      let done=0,total=0,finishedGames=0,activeGames=0;
       for(const g of games){
-        const active=g.tasks.filter(t=>t.repeat!=='once');
-        const s=taskStats(active,g,now);
-        done+=s.done;total+=s.total;
-        if(s.total>0 && s.done===s.total)finishedGames++;
+        const active=g.tasks.filter(t=>view==='all'?t.repeat==='daily'||t.repeat==='weekly':t.repeat===view);
+        const stats=taskStats(active,g,now);
+        done+=stats.done;total+=stats.total;
+        if(stats.total>0){activeGames++;if(stats.done===stats.total)finishedGames++;}
       }
-      return {done,total,finishedGames};
+      return {done,total,finishedGames,activeGames};
     }
     function signature(now=new Date()){
       return games.map(g=>g.id+':'+cycleKey(g,'daily',now)+':'+cycleKey(g,'weekly',now)).join('|');
@@ -389,12 +414,19 @@
     function render(now=new Date()){
       lastSignature=signature(now);
       $('#headerDate').textContent=new Intl.DateTimeFormat('ja-JP',{month:'long',day:'numeric',weekday:'long'}).format(now);
-      const s=fullStats(now),percentage=s.total?Math.round(s.done/s.total*100):0;
+      const summaryView=prefs.summaryView || 'daily';
+      const s=fullStats(now,summaryView),percentage=s.total?Math.round(s.done/s.total*100):0;
+      const summaryLabels={daily:'デイリー',weekly:'ウィークリー',all:'全体'};
+      $('#heroEyebrow').textContent={daily:'DAILY QUESTS',weekly:'WEEKLY QUESTS',all:'ALL QUESTS'}[summaryView];
+      document.querySelectorAll('[data-summary]').forEach(btn=>{
+        const active=btn.dataset.summary===summaryView;
+        btn.classList.toggle('active',active);btn.setAttribute('aria-pressed',String(active));
+      });
       $('#totalStats').innerHTML=`${s.done} <span>/ ${s.total} 完了</span>`;
-      $('#heroNote').textContent=games.length?`${s.finishedGames} / ${games.length} ゲームの日課を完了`:'まずはゲームを追加してみましょう';
+      $('#heroNote').textContent=s.activeGames?`${s.finishedGames} / ${s.activeGames} ゲームの${summaryLabels[summaryView]}日課を完了`:(games.length?'この種類の日課はまだありません':'まずはゲームを追加してみましょう');
       $('#heroPercent').textContent=`${percentage}%`;
       $('#heroMeter').style.setProperty('--pct',percentage+'%');
-      $('#dailyInfo').textContent=s.total>0&&s.done===s.total?'✨ すべての日課を達成！':'☀ デイリー・ウィークリーは更新時刻にリセット';
+      $('#dailyInfo').textContent=s.total>0&&s.done===s.total?`✨ ${summaryLabels[summaryView]}の日課をすべて達成！`:summaryView==='all'?'☀ デイリー＋ウィークリー（固定は除外）':`☀ ${summaryLabels[summaryView]}のみ集計中`;
       $('#gameCount').textContent=`${games.length} 件`;
       $('#hideDone').checked=prefs.hideDone;
       document.querySelectorAll('[data-filter]').forEach(btn=>{
@@ -431,7 +463,7 @@
         return `<section class="game ${complete?'is-done':''} ${closed?'game-closed':''}" data-id="${escapeHTML(g.id)}">
           <div class="game-head">
             <span class="game-emoji" style="--game-tone:${safeColor(g.color)}" aria-hidden="true">${iconMarkup(g)}</span>
-            <div class="game-heading"><div class="game-name">${escapeHTML(g.name)}</div><div class="game-meta">毎日 ${g.resetTime} 更新 ｜ 毎週 ${dayNames[g.weeklyDay]}曜更新${safeReminderTime(g.reminderTime)?` ｜ 🔔毎日 ${escapeHTML(g.reminderTime)}`:''}${safeReminderTime(g.weeklyReminderTime)?` ｜ 🔔毎週${dayNames[safeDay(g.weeklyReminderDay ?? g.weeklyDay)]}曜 ${escapeHTML(g.weeklyReminderTime)}`:''}</div></div>
+            <div class="game-heading"><div class="game-name">${escapeHTML(g.name)}</div><div class="game-meta">毎日 ${g.resetTime} 更新 ｜ 毎週 ${dayNames[g.weeklyDay]}曜更新${g.notificationMode==='combined'?' ｜ 🔔週1回まとめて': ''}${safeReminderTime(g.reminderTime)?` ｜ 🔔毎日 ${escapeHTML(g.reminderTime)}`:''}${safeReminderTime(g.weeklyReminderTime)?` ｜ 🔔毎週${dayNames[safeDay(g.weeklyReminderDay ?? g.weeklyDay)]}曜 ${escapeHTML(g.weeklyReminderTime)}`:''}</div></div>
             <div class="game-head-buttons">
               <button class="game-mini" type="button" data-action="edit-game" data-game="${escapeHTML(g.id)}" aria-label="${escapeHTML(g.name)}の設定">⚙</button>
               <button class="game-mini" type="button" data-action="collapse" data-game="${escapeHTML(g.id)}" aria-expanded="${!closed}" aria-label="${escapeHTML(g.name)}の項目を${closed?'表示':'閉じる'}">${closed?'⌄':'⌃'}</button>
@@ -495,12 +527,22 @@
             <div class="field"><label for="weeklyDay">毎週の更新曜日</label><select id="weeklyDay" class="input">${[1,2,3,4,5,6,0].map(d=>`<option value="${d}" ${g&&g.weeklyDay===d?'selected':!g&&d===1?'selected':''}>${dayNames[d]}曜日</option>`).join('')}</select></div>
           </div>
           <p class="section-help">ウィークリーも、上の更新時刻に切り替わります。</p>
+          <div class="field"><label for="notificationMode">🔔 通知の送り方</label><select id="notificationMode" class="input"><option value="separate" ${!g||g.notificationMode!=='combined'?'selected':''}>種類ごとに別々に通知</option><option value="combined" ${g&&g.notificationMode==='combined'?'selected':''}>週1回まとめて通知（1通）</option></select></div>
+          <p class="notification-mode-tip" id="notificationModeTip"></p>
           <div class="field"><label for="reminderTime">🔔 デイリーの通知時刻（毎日）</label><input id="reminderTime" class="input" type="time" value="${escapeHTML(g?safeReminderTime(g.reminderTime):'')}"><div class="hint">未完了のデイリーがある場合だけ、毎日指定時刻に通知。時刻を空にするとオフになります。</div></div>
           <div class="field"><label for="weeklyReminderDay">🔔 ウィークリーの通知曜日（週1回）</label><select id="weeklyReminderDay" class="input">${[1,2,3,4,5,6,0].map(d=>`<option value="${d}" ${d===safeDay(g?(g.weeklyReminderDay ?? g.weeklyDay):0)?'selected':''}>${dayNames[d]}曜日</option>`).join('')}</select></div>
-          <div class="field"><label for="weeklyReminderTime">ウィークリーの通知時刻（任意）</label><input id="weeklyReminderTime" class="input" type="time" value="${escapeHTML(g?safeReminderTime(g.weeklyReminderTime):'')}"><div class="hint">指定した曜日と時刻に、未完了のウィークリーだけを通知します。<strong>初期状態はオフ</strong>。更新曜日とは別に設定できます。固定の日課は通知対象外です。</div></div>
+          <div class="field"><label for="weeklyReminderTime">ウィークリーの通知時刻（任意）</label><input id="weeklyReminderTime" class="input" type="time" value="${escapeHTML(g?safeReminderTime(g.weeklyReminderTime):'')}"><div class="hint">週課通知を使う場合に時刻を入力してください。空欄なら週課通知はオフです。「まとめて」を選ぶと、この曜日・時刻にデイリーとウィークリーの未完了分を1通で通知します。</div></div>
           <div class="field"><label>カードの色</label><div class="swatches">${PALETTE.map(c=>`<button class="swatch ${color===c?'selected':''}" type="button" data-action="select-color" data-color="${c}" style="background:${c}" aria-label="色を選択" aria-pressed="${color===c}"></button>`).join('')}</div><input type="hidden" id="gameColor" value="${color}"></div>
           <div class="modal-actions">${g?`<button type="button" class="btn btn-danger" data-action="delete-game" data-game="${escapeHTML(g.id)}">削除</button>`:''}<button class="btn btn-primary" type="submit">${g?'変更を保存':'ゲームを登録'}</button></div>
         </form>`);
+      updateNotificationModeTip();
+    }
+    function updateNotificationModeTip(){
+      const node=$('#notificationModeTip');if(!node)return;
+      const mode=$('#notificationMode')?.value;
+      node.textContent=mode==='combined'
+        ?'まとめて：週課の通知曜日だけ「ウィークリーの通知時刻」にデイリー＋ウィークリーの未完了分を1通で送ります。その日は通常のデイリー通知を送りません。それ以外の曜日はデイリーのみ通知します。週課時刻が空欄なら週課通知はオフです。'
+        :'別々：毎日デイリーの未完了分を通知し、設定した週1回の曜日・時刻にウィークリーの未完了分を別通知します。';
     }
     function updateIconPreview(){
       const preview=$('#gameIconPreview');
@@ -627,7 +669,7 @@
     function addSample(){
       if(games.length&&!confirm('サンプルゲームを追加しますか？ 既存のゲームはそのまま残ります。'))return;
       games.push({id:newId(),name:'サンプルゲーム',icon:'🌟',color:PALETTE[1],resetTime:'05:00',weeklyDay:1,
-        reminderTime:'21:00',weeklyReminderTime:'',weeklyReminderDay:0,tasks:[makeTask('ログイン報酬を受け取る'),makeTask('デイリー任務をクリア'),makeTask('スタミナ消費'),makeTask('週ボスの報酬を回収','weekly')]});
+        reminderTime:'21:00',weeklyReminderTime:'',weeklyReminderDay:0,notificationMode:'separate',tasks:[makeTask('ログイン報酬を受け取る'),makeTask('デイリー任務をクリア'),makeTask('スタミナ消費'),makeTask('週ボスの報酬を回収','weekly')]});
       save();closeModal();render();notice('サンプルを追加しました');
     }
     function handleToggle(gameId,taskId){
@@ -711,6 +753,7 @@
       if(event.target.id==='gameIcon')updateIconPreview();
     });
     document.addEventListener('change',async event=>{
+      if(event.target.id==='notificationMode'){updateNotificationModeTip();return;}
       if(event.target.id!=='gameIconFile')return;
       const file=event.target.files?.[0];
       if(!file)return;
@@ -724,7 +767,7 @@
         const id=event.target.dataset.id,name=$('#gameName').value.trim();
         if(!name){notice('ゲーム名を入力してください');return}
         if(imageProcessing){notice('画像の読み込みが終わってから保存してください');return}
-        const payload={name,icon:$('#gameIcon').value.trim()||'🎮',iconImage:pendingIconImage,color:safeColor($('#gameColor').value),resetTime:safeTime($('#resetTime').value),reminderTime:safeReminderTime($('#reminderTime').value),weeklyDay:safeDay($('#weeklyDay').value),weeklyReminderTime:safeReminderTime($('#weeklyReminderTime').value),weeklyReminderDay:safeDay($('#weeklyReminderDay').value)};
+        const payload={name,icon:$('#gameIcon').value.trim()||'🎮',iconImage:pendingIconImage,color:safeColor($('#gameColor').value),resetTime:safeTime($('#resetTime').value),reminderTime:safeReminderTime($('#reminderTime').value),weeklyDay:safeDay($('#weeklyDay').value),weeklyReminderTime:safeReminderTime($('#weeklyReminderTime').value),weeklyReminderDay:safeDay($('#weeklyReminderDay').value),notificationMode:$('#notificationMode').value==='combined'?'combined':'separate'};
         // 容量制限で保存できなかった場合は変更を取り消す。
         const oldGames=JSON.stringify(games);
         if(id){const g=games.find(x=>x.id===id);if(g)Object.assign(g,payload)}
@@ -759,6 +802,9 @@
     });
     document.querySelectorAll('[data-filter]').forEach(btn=>btn.addEventListener('click',()=>{
       prefs.filter=btn.dataset.filter;savePrefs();render();
+    }));
+    document.querySelectorAll('[data-summary]').forEach(btn=>btn.addEventListener('click',()=>{
+      prefs.summaryView=btn.dataset.summary;savePrefs();render();
     }));
     $('#hideDone').addEventListener('change',event=>{prefs.hideDone=event.target.checked;savePrefs();render()});
     load();render();

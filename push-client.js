@@ -32,6 +32,7 @@
       resetTime: g.resetTime || '05:00', reminderTime: g.reminderTime || '',
       weeklyDay: Number(g.weeklyDay ?? 1),
       weeklyReminderTime: g.weeklyReminderTime || '', weeklyReminderDay: Number(g.weeklyReminderDay ?? g.weeklyDay ?? 1),
+      notificationMode: g.notificationMode === 'combined' ? 'combined' : 'separate',
       tasks: (Array.isArray(g.tasks)?g.tasks:[]).map(t=>({
         title: String(t.title||'日課').slice(0,130), repeat:t.repeat||'daily',
         doneKeys: (Array.isArray(t.doneKeys)?t.doneKeys:[])
