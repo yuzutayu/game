@@ -7,6 +7,7 @@
   const KEY_ENABLED = 'daily-board-push-enabled-v1';
   const KEY_TOKEN = 'daily-board-push-token-v1';
   const GAME_KEY = 'daily-board-games-v1';
+  const NOTIFY_SETTINGS_KEY = 'daily-board-notification-settings-v1';
   let timer = null, busy = false;
   const $ = id => document.getElementById(id);
   const enabled = () => localStorage.getItem(KEY_ENABLED) === '1';
@@ -32,13 +33,22 @@
       resetTime: g.resetTime || '05:00', reminderTime: g.reminderTime || '',
       weeklyDay: Number(g.weeklyDay ?? 1),
       weeklyReminderTime: g.weeklyReminderTime || '', weeklyReminderDay: Number(g.weeklyReminderDay ?? g.weeklyDay ?? 1),
-      notificationMode: g.notificationMode === 'combined' ? 'combined' : 'separate',
       tasks: (Array.isArray(g.tasks)?g.tasks:[]).map(t=>({
         title: String(t.title||'日課').slice(0,130), repeat:t.repeat||'daily',
         doneKeys: (Array.isArray(t.doneKeys)?t.doneKeys:[])
           .filter(v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v)).slice(-70),
       })),
     }));
+  }
+  function notificationSettingsSnapshot(){
+    let x={};
+    try{x=JSON.parse(localStorage.getItem(NOTIFY_SETTINGS_KEY)||'{}')||{};}catch(_){}
+    return {
+      scope:x.scope==='all'?'all':'perGame',
+      dailyTime:typeof x.dailyTime==='string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(x.dailyTime)?x.dailyTime:'21:00',
+      weeklyDay:Number.isInteger(x.weeklyDay)&&x.weeklyDay>=0&&x.weeklyDay<=6?x.weeklyDay:0,
+      includeWeekly:x.includeWeekly!==false,
+    };
   }
   async function req(path,method='GET',data=null) {
     if (!READY) throw Error('先に push-config.js の Worker URL を設定してください');
@@ -92,6 +102,7 @@
         subscription: subscription.toJSON(),
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Tokyo',
         games: gamesSnapshot(),
+        notificationSettings: notificationSettingsSnapshot(),
       });
     } catch (e) {
       if (e.message.includes('通知登録がありません')) {
@@ -132,6 +143,7 @@
         subscription:subscription.toJSON(),
         timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||'Asia/Tokyo',
         games:gamesSnapshot(),
+        notificationSettings:notificationSettingsSnapshot(),
       });
       localStorage.setItem(KEY_ENABLED,'1');
       const inviteInput=$('pushInviteCode'); if(inviteInput) inviteInput.value='';

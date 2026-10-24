@@ -230,6 +230,7 @@
     const STORAGE_KEY = 'daily-board-games-v1';
     const SETTINGS_KEY = 'daily-board-preferences-v1';
     const REMINDERS_KEY = 'daily-board-reminders-dismissed-v1';
+    const NOTIFY_SETTINGS_KEY = 'daily-board-notification-settings-v1';
     const PALETTE = ['#365f66','#5b4a83','#66536d','#655c45','#3f617b','#4d665b'];
     const dayNames = ['日','月','火','水','木','金','土'];
     const repeatNames = {daily:'デイリー',weekly:'ウィークリー',once:'固定'};
@@ -258,6 +259,20 @@
     let imageProcessing=false;
     let cropState=null;
     let dismissedReminders={};
+    let notifySettings={scope:'perGame',dailyTime:'21:00',weeklyDay:0,includeWeekly:true};
+    function safeNotifySettings(o){
+      return {scope:o?.scope==='all'?'all':'perGame',
+        dailyTime:safeReminderTime(o?.dailyTime)||'21:00',
+        weeklyDay:safeDay(o?.weeklyDay??0),
+        includeWeekly:o?.includeWeekly!==false};
+    }
+    function saveNotifySettings(){
+      try{
+        localStorage.setItem(NOTIFY_SETTINGS_KEY,JSON.stringify(notifySettings));
+        window.dispatchEvent(new Event('daily-board:changed'));
+        return true;
+      }catch(e){notice('通知設定を保存できませんでした');return false;}
+    }
 
     function load(){
       try{
@@ -268,6 +283,9 @@
         const p=JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}');
         prefs={filter:['all','daily','weekly','once'].includes(p.filter)?p.filter:'all',hideDone:!!p.hideDone,summaryView:['daily','weekly','all'].includes(p.summaryView)?p.summaryView:'daily'};
       }catch(_){/* default view */}
+      try{
+        notifySettings=safeNotifySettings(JSON.parse(localStorage.getItem(NOTIFY_SETTINGS_KEY)||'{}'));
+      }catch(_){notifySettings=safeNotifySettings({});}
       try{
         const d=JSON.parse(localStorage.getItem(REMINDERS_KEY)||'{}');
         if(d && typeof d==='object' && !Array.isArray(d))dismissedReminders=d;
@@ -291,7 +309,6 @@
         weeklyDay:safeDay(g.weeklyDay),
         weeklyReminderTime:safeReminderTime(g.weeklyReminderTime),
         weeklyReminderDay:safeDay(g.weeklyReminderDay ?? g.weeklyDay),
-        notificationMode:g.notificationMode==='combined'?'combined':'separate',
         tasks:(Array.isArray(g.tasks)?g.tasks:[]).slice(0,600).map(t=>({
           id:unique(t.id),title:String(t.title||'無題の日課').slice(0,120),
           repeat:validRepeat(t.repeat),
@@ -333,19 +350,15 @@
       const days=Math.floor(mins/1440),hours=Math.floor(mins%1440/60),minutes=mins%60;
       return days>0?`${days}日${hours}時間`:`${hours}時間${minutes}分`;
     }
-    // 通知は「別々」「週1回だけまとめて」を選択可能。
-    // まとめて通知の場合：設定した週課通知曜日は週課時刻に1通、他の曜日はデイリー時刻に通知。
+    // ゲーム別モードでは、デイリーとウィークリーを別々に通知する。
+    // 旧バージョンのゲーム内「一括」設定は廃止し、無視する。
     function reminderRules(game,now=new Date()){
-      const dailyTime=safeReminderTime(game.reminderTime);
-      const weeklyTime=safeReminderTime(game.weeklyReminderTime);
-      const isWeeklyDay=now.getDay()===safeDay(game.weeklyReminderDay ?? game.weeklyDay);
-      if(game.notificationMode==='combined' && isWeeklyDay && weeklyTime){
-        return [{kind:'combined',time:weeklyTime}];
-      }
       const result=[];
-      if(dailyTime)result.push({kind:'daily',time:dailyTime});
-      if(game.notificationMode!=='combined' && isWeeklyDay && weeklyTime){
-        result.push({kind:'weekly',time:weeklyTime});
+      const daily=safeReminderTime(game.reminderTime);
+      const weekly=safeReminderTime(game.weeklyReminderTime);
+      if(daily) result.push({kind:'daily',time:daily});
+      if(weekly && now.getDay()===safeDay(game.weeklyReminderDay ?? game.weeklyDay)){
+        result.push({kind:'weekly',time:weekly});
       }
       return result;
     }
@@ -368,13 +381,35 @@
         if(now.getHours()*60+now.getMinutes()<h*60+m)return null;
         key=kind+'|'+ymd(now)+'|'+time;
       }
-      const undone=game.tasks.filter(t=>(kind==='combined'?t.repeat==='daily'||t.repeat==='weekly':t.repeat===kind)&&!isDone(game,t,now));
+      const undone=game.tasks.filter(t=>t.repeat===kind&&!isDone(game,t,now));
       if(!undone.length)return null;
       if(dismissedReminders[game.id+'|'+kind]===key)return null;
       return {game,kind,undone,key,time};
     }
     function renderAlerts(now=new Date()){
       const node=$('#reminderAlerts');if(!node)return;
+      if(notifySettings.scope==='all'){
+        const stamp=ymd(now);
+        const mins=now.getHours()*60+now.getMinutes();
+        const [h,m]=notifySettings.dailyTime.split(':').map(Number);
+        const weeklyToday=notifySettings.includeWeekly && now.getDay()===notifySettings.weeklyDay;
+        const kinds=weeklyToday?['daily','weekly']:['daily'];
+        const undone=games.flatMap(g=>g.tasks.filter(t=>kinds.includes(t.repeat)&&!isDone(g,t,now)).map(t=>({game:g,title:t.title,type:t.repeat})));
+        const key=`${stamp}|${notifySettings.dailyTime}|${weeklyToday?'weekly':'daily'}`;
+        const visible=mins>=h*60+m && undone.length && dismissedReminders['__global__']!==key;
+        node.hidden=!visible;
+        if(!visible){node.innerHTML='';return;}
+        const gameCount=new Set(undone.map(x=>x.game.id)).size;
+        node.innerHTML=`<h2 class="reminder-heading">🔔 全ゲームに未完了の日課があります</h2>
+          <div class="reminder-item"><div class="reminder-title">${gameCount}ゲーム・残り${undone.length}件
+            <span class="reminder-chip">${weeklyToday?'デイリー＋ウィークリー':'デイリー'} ${escapeHTML(notifySettings.dailyTime)}</span></div>
+          <div class="reminder-sub">${escapeHTML(undone.slice(0,3).map(x=>`${x.game.name}: ${x.title}`).join('、'))}${undone.length>3?' ほか':''}</div>
+          <div class="reminder-actions">
+            <button type="button" class="btn btn-primary" data-action="show-global-reminders">未完了の日課を見る</button>
+            <button type="button" class="btn" data-action="dismiss-global-reminder" data-key="${escapeHTML(key)}">今回の通知を閉じる</button>
+          </div></div>`;
+        return;
+      }
       const alerts=games.flatMap(g=>reminderRules(g,now).map(r=>reminderStatus(g,r.kind,now))).filter(Boolean);
       node.hidden=!alerts.length;
       if(!alerts.length){node.innerHTML='';return}
@@ -462,7 +497,7 @@
         return `<section class="game ${complete?'is-done':''} ${closed?'game-closed':''}" data-id="${escapeHTML(g.id)}">
           <div class="game-head">
             <span class="game-emoji" style="--game-tone:${safeColor(g.color)}" aria-hidden="true">${iconMarkup(g)}</span>
-            <div class="game-heading"><div class="game-name">${escapeHTML(g.name)}</div><div class="game-meta">毎日 ${g.resetTime} 更新 ｜ 毎週 ${dayNames[g.weeklyDay]}曜更新${g.notificationMode==='combined'?' ｜ 🔔週1回まとめて': ''}${safeReminderTime(g.reminderTime)?` ｜ 🔔毎日 ${escapeHTML(g.reminderTime)}`:''}${safeReminderTime(g.weeklyReminderTime)?` ｜ 🔔毎週${dayNames[safeDay(g.weeklyReminderDay ?? g.weeklyDay)]}曜 ${escapeHTML(g.weeklyReminderTime)}`:''}</div></div>
+            <div class="game-heading"><div class="game-name">${escapeHTML(g.name)}</div><div class="game-meta">毎日 ${g.resetTime} 更新 ｜ 毎週 ${dayNames[g.weeklyDay]}曜更新${safeReminderTime(g.reminderTime)?` ｜ 🔔毎日 ${escapeHTML(g.reminderTime)}`:''}${safeReminderTime(g.weeklyReminderTime)?` ｜ 🔔毎週${dayNames[safeDay(g.weeklyReminderDay ?? g.weeklyDay)]}曜 ${escapeHTML(g.weeklyReminderTime)}`:''}</div></div>
             <div class="game-head-buttons">
               <button class="game-mini" type="button" data-action="edit-game" data-game="${escapeHTML(g.id)}" aria-label="${escapeHTML(g.name)}の設定">⚙</button>
               <button class="game-mini" type="button" data-action="collapse" data-game="${escapeHTML(g.id)}" aria-expanded="${!closed}" aria-label="${escapeHTML(g.name)}の項目を${closed?'表示':'閉じる'}">${closed?'⌄':'⌃'}</button>
@@ -525,23 +560,13 @@
             <div class="field"><label for="resetTime">毎日の更新時刻</label><input id="resetTime" class="input" type="time" required value="${g?g.resetTime:'05:00'}"></div>
             <div class="field"><label for="weeklyDay">毎週の更新曜日</label><select id="weeklyDay" class="input">${[1,2,3,4,5,6,0].map(d=>`<option value="${d}" ${g&&g.weeklyDay===d?'selected':!g&&d===1?'selected':''}>${dayNames[d]}曜日</option>`).join('')}</select></div>
           </div>
-          <p class="section-help">ウィークリーも、上の更新時刻に切り替わります。</p>
-          <div class="field"><label for="notificationMode">🔔 通知の送り方</label><select id="notificationMode" class="input"><option value="separate" ${!g||g.notificationMode!=='combined'?'selected':''}>種類ごとに別々に通知</option><option value="combined" ${g&&g.notificationMode==='combined'?'selected':''}>週1回まとめて通知（1通）</option></select></div>
-          <p class="notification-mode-tip" id="notificationModeTip"></p>
-          <div class="field"><label for="reminderTime">🔔 デイリーの通知時刻（毎日）</label><input id="reminderTime" class="input" type="time" value="${escapeHTML(g?safeReminderTime(g.reminderTime):'')}"><div class="hint">未完了のデイリーがある場合だけ、毎日指定時刻に通知。時刻を空にするとオフになります。</div></div>
+          <p class="section-help">ウィークリーも、上の更新時刻に切り替わります。通知方法はトップ画面の⚙ 設定から、ゲーム別／全ゲーム一括で選べます。</p>
+          <div class="field"><label for="reminderTime">🔔 デイリーの通知時刻（毎日）</label><input id="reminderTime" class="input" type="time" value="${escapeHTML(g?safeReminderTime(g.reminderTime):'')}"><div class="hint">ゲームごとに通知する場合に使用します。空欄なら、このゲームのデイリー通知はオフです。</div></div>
           <div class="field"><label for="weeklyReminderDay">🔔 ウィークリーの通知曜日（週1回）</label><select id="weeklyReminderDay" class="input">${[1,2,3,4,5,6,0].map(d=>`<option value="${d}" ${d===safeDay(g?(g.weeklyReminderDay ?? g.weeklyDay):0)?'selected':''}>${dayNames[d]}曜日</option>`).join('')}</select></div>
-          <div class="field"><label for="weeklyReminderTime">ウィークリーの通知時刻（任意）</label><input id="weeklyReminderTime" class="input" type="time" value="${escapeHTML(g?safeReminderTime(g.weeklyReminderTime):'')}"><div class="hint">週課通知を使う場合に時刻を入力してください。空欄なら週課通知はオフです。「まとめて」を選ぶと、この曜日・時刻にデイリーとウィークリーの未完了分を1通で通知します。</div></div>
+          <div class="field"><label for="weeklyReminderTime">ウィークリーの通知時刻（任意）</label><input id="weeklyReminderTime" class="input" type="time" value="${escapeHTML(g?safeReminderTime(g.weeklyReminderTime):'')}"><div class="hint">ゲームごとに通知する場合に使用します。空欄なら、このゲームの週課通知はオフです。</div></div>
           <div class="field"><label>カードの色</label><div class="swatches">${PALETTE.map(c=>`<button class="swatch ${color===c?'selected':''}" type="button" data-action="select-color" data-color="${c}" style="background:${c}" aria-label="色を選択" aria-pressed="${color===c}"></button>`).join('')}</div><input type="hidden" id="gameColor" value="${color}"></div>
           <div class="modal-actions">${g?`<button type="button" class="btn btn-danger" data-action="delete-game" data-game="${escapeHTML(g.id)}">削除</button>`:''}<button class="btn btn-primary" type="submit">${g?'変更を保存':'ゲームを登録'}</button></div>
         </form>`);
-      updateNotificationModeTip();
-    }
-    function updateNotificationModeTip(){
-      const node=$('#notificationModeTip');if(!node)return;
-      const mode=$('#notificationMode')?.value;
-      node.textContent=mode==='combined'
-        ?'まとめて：週課の通知曜日だけ「ウィークリーの通知時刻」にデイリー＋ウィークリーの未完了分を1通で送ります。その日は通常のデイリー通知を送りません。それ以外の曜日はデイリーのみ通知します。週課時刻が空欄なら週課通知はオフです。'
-        :'別々：毎日デイリーの未完了分を通知し、設定した週1回の曜日・時刻にウィークリーの未完了分を別通知します。';
     }
     function updateIconPreview(){
       const preview=$('#gameIconPreview');
@@ -657,10 +682,23 @@
     }
     function settingsModal(){
       modal(`<div class="modal-header"><h2 id="modalTitle">設定・バックアップ</h2><button type="button" class="btn btn-icon btn-ghost" data-action="close-modal" aria-label="閉じる">×</button></div>
-        <p class="section-help">登録データはこの端末のブラウザ内に保存されます。画像やチェック状況を外部サーバーへ送信しません。</p>
+        <p class="section-help">ゲームの本体データと画像は端末内に保存されます。プッシュ通知を有効にしている場合のみ、ゲーム名・日課名・完了状況・通知設定がCloudflareへ同期されます。画像は送信しません。</p>
         <div class="settings-group"><h3>💾 データを守る</h3><p>このブラウザの保存領域に自動保存しています。ブラウザのデータ削除や端末変更に備え、定期的にJSONバックアップを保存してください。</p><button class="btn btn-primary" data-action="export" type="button">⬇ バックアップ保存</button><button class="btn" type="button" data-action="import">⬆ バックアップ復元</button><p class="note">復元すると、現在のゲームと日課はバックアップの内容で置き換わります。</p></div>
         <div class="settings-group"><h3>🖼️ ゲームのアイコン</h3><p>ゲームの⚙から好きな画像を選び、位置と拡大を調整して切り抜けます。画像は小さく加工してブラウザ内に保存し、JSONバックアップにも含まれます。元の写真をGitHubにアップロードする必要はありません。画像が多いと保存容量を使うため、時々バックアップを取ってください。</p></div>
-        <div class="settings-group"><h3>🔔 未完了通知（iPhone）</h3><p>ゲームの⚙からデイリーの毎日の通知時刻と、ウィークリーの週1回の通知曜日・時刻を別々に指定できます。未完了の対象日課がある場合にロック画面へ通知します。初回のみ招待コードと通知許可が必要です。ゲーム名・日課名・完了情報を通知用サーバーに送ります。招待コードは端末に保存しません。</p><label for="pushInviteCode" class="note" style="display:block;margin:0 0 7px">初回登録用の招待コード（友人から受け取ったコード）</label><input id="pushInviteCode" class="input" type="password" autocomplete="off" spellcheck="false" placeholder="通知を初めて有効にする時だけ入力" style="margin-bottom:12px"><button class="btn btn-primary" id="pushToggleButton" type="button">🔔 通知を有効にする</button><button class="btn" id="pushTestButton" type="button" hidden>🧪 テスト通知</button><p class="note" id="pushStatus" role="status" aria-live="polite" style="margin-top:10px">通知機能の読み込みを確認中です。表示が変わらない場合は push-client.js のアップロードを確認してください。</p></div>
+        <div class="settings-group"><h3>🔔 通知をまとめる範囲</h3>
+          <form id="notificationSettingsForm">
+            <div class="field"><label for="notifyScope">通知の方式</label>
+              <select class="input" id="notifyScope"><option value="perGame" ${notifySettings.scope==='perGame'?'selected':''}>ゲームごとに通知</option><option value="all" ${notifySettings.scope==='all'?'selected':''}>全ゲーム一括通知（1回につき1通）</option></select>
+            </div>
+            <div id="notifyAllPanel" ${notifySettings.scope==='all'?'':'hidden'}>
+              <div class="field"><label for="notifyAllDailyTime">一括通知の時刻（毎日）</label><input type="time" class="input" id="notifyAllDailyTime" required value="${escapeHTML(notifySettings.dailyTime)}"><div class="hint">毎日この時刻に全ゲームの未完了デイリーだけをまとめて通知します。</div></div>
+              <label class="mini-toggle" style="margin:8px 0 14px"><input id="notifyAllWeekly" type="checkbox" ${notifySettings.includeWeekly?'checked':''}>ウィークリーも週1回の一括通知に含める</label>
+              <div class="field" id="notifyAllWeeklyArea" ${notifySettings.includeWeekly?'':'hidden'}><label for="notifyAllWeeklyDay">ウィークリーを含める曜日</label><select class="input" id="notifyAllWeeklyDay">${[0,1,2,3,4,5,6].map(d=>`<option value="${d}" ${notifySettings.weeklyDay===d?'selected':''}>${dayNames[d]}曜日</option>`).join('')}</select><div class="hint">この曜日には、同じ通知時刻にデイリー＋ウィークリーの未完了分を全ゲームから集めて1通で送信します。別の週課通知は送りません。</div></div>
+            </div>
+            <p class="note">ゲームごと：各ゲームの⚙で設定した時刻・曜日に個別通知。全ゲーム一括：上の時刻だけ使用し、ゲーム側の通知時刻は一時的に無視します。設定はこのiPhone専用で、友人は自分の方式を選べます。</p>
+            <button class="btn btn-primary" type="submit">通知方式を保存</button>
+          </form></div>
+        <div class="settings-group"><h3>🔔 未完了通知（iPhone）</h3><p>上の通知方式で「ゲームごと」か「全ゲーム一括」を選べます。一括の場合、全ゲームのデイリー未完了分を毎日1通、指定曜日はウィークリーも含めて1通で通知します。未完了がなければ送りません。初回のみ招待コードと通知許可が必要です。ゲーム名・日課名・完了情報を通知用サーバーに送ります。招待コードは端末に保存しません。</p><label for="pushInviteCode" class="note" style="display:block;margin:0 0 7px">初回登録用の招待コード（友人から受け取ったコード）</label><input id="pushInviteCode" class="input" type="password" autocomplete="off" spellcheck="false" placeholder="通知を初めて有効にする時だけ入力" style="margin-bottom:12px"><button class="btn btn-primary" id="pushToggleButton" type="button">🔔 通知を有効にする</button><button class="btn" id="pushTestButton" type="button" hidden>🧪 テスト通知</button><p class="note" id="pushStatus" role="status" aria-live="polite" style="margin-top:10px">通知機能の読み込みを確認中です。表示が変わらない場合は push-client.js のアップロードを確認してください。</p></div>
         <div class="settings-group"><h3>🔄 自動リセットについて</h3><p>ゲームごとに設定した時刻・曜日を過ぎると、対応する日課が自動で未完了扱いになります。ページを開きっぱなしでなくても、次回表示時に反映されます。更新時刻はスマホ本体の時刻とタイムゾーンを基準にします。</p></div>
         <div class="settings-group"><h3>📱 スマホでの使い方</h3><p>安定して使うには、このHTMLをHTTPSの静的サイトとして公開してSafariで開き、「共有」→「ホーム画面に追加」がおすすめです。iPhoneの「ファイル」アプリのプレビューなどでは保存が安定しない場合があります。</p></div>
         <div class="settings-group"><h3>🧪 お試し用データ</h3><p>まだゲームを登録していなければ、サンプルのゲームを追加して操作を試せます。</p><button class="btn" type="button" data-action="sample">サンプルを追加</button></div>`);
@@ -668,7 +706,7 @@
     function addSample(){
       if(games.length&&!confirm('サンプルゲームを追加しますか？ 既存のゲームはそのまま残ります。'))return;
       games.push({id:newId(),name:'サンプルゲーム',icon:'🌟',color:PALETTE[1],resetTime:'05:00',weeklyDay:1,
-        reminderTime:'21:00',weeklyReminderTime:'',weeklyReminderDay:0,notificationMode:'separate',tasks:[makeTask('ログイン報酬を受け取る'),makeTask('デイリー任務をクリア'),makeTask('スタミナ消費'),makeTask('週ボスの報酬を回収','weekly')]});
+        reminderTime:'21:00',weeklyReminderTime:'',weeklyReminderDay:0,tasks:[makeTask('ログイン報酬を受け取る'),makeTask('デイリー任務をクリア'),makeTask('スタミナ消費'),makeTask('週ボスの報酬を回収','weekly')]});
       save();closeModal();render();notice('サンプルを追加しました');
     }
     function handleToggle(gameId,taskId){
@@ -680,7 +718,7 @@
       save();render();
     }
     function exportData(){
-      const blob=new Blob([JSON.stringify({app:'デイリーボード',version:1,exportedAt:new Date().toISOString(),games},null,2)],{type:'application/json;charset=utf-8'});
+      const blob=new Blob([JSON.stringify({app:'デイリーボード',version:1,exportedAt:new Date().toISOString(),games,notificationSettings:notifySettings},null,2)],{type:'application/json;charset=utf-8'});
       const url=URL.createObjectURL(blob);
       const link=document.createElement('a');link.href=url;link.download=`daily-board-backup-${ymd(new Date())}.json`;
       document.body.appendChild(link);link.click();link.remove();
@@ -700,6 +738,7 @@
           alert('バックアップを保存できませんでした。ブラウザの空き容量などを確認してください。');
           return;
         }
+        if(obj.notificationSettings){notifySettings=safeNotifySettings(obj.notificationSettings);saveNotifySettings();}
         collapsed.clear();closeModal();render();notice('バックアップを復元しました');
       }catch(err){console.error(err);alert('バックアップを読み込めませんでした。正しいJSONファイルか確認してください。');}
     }
@@ -714,6 +753,13 @@
       if(a==='edit-task')taskModal(g,t);
       if(a==='toggle-task')handleToggle(g,t);
       if(a==='collapse'){collapsed.has(g)?collapsed.delete(g):collapsed.add(g);render()}
+      if(a==='show-global-reminders'){
+        prefs.filter='all';prefs.hideDone=true;collapsed.clear();savePrefs();render();
+        document.querySelector('#games')?.scrollIntoView({behavior:'smooth',block:'start'});
+      }
+      if(a==='dismiss-global-reminder'){
+        dismissedReminders['__global__']=btn.dataset.key;saveDismissed();renderAlerts();
+      }
       if(a==='dismiss-reminder'){
         const target=games.find(x=>x.id===g),kind=btn.dataset.kind;
         const state=target?reminderStatus(target,kind):null;
@@ -752,7 +798,12 @@
       if(event.target.id==='gameIcon')updateIconPreview();
     });
     document.addEventListener('change',async event=>{
-      if(event.target.id==='notificationMode'){updateNotificationModeTip();return;}
+      if(event.target.id==='notifyScope'){
+        const panel=$('#notifyAllPanel');if(panel)panel.hidden=event.target.value!=='all';return;
+      }
+      if(event.target.id==='notifyAllWeekly'){
+        const panel=$('#notifyAllWeeklyArea');if(panel)panel.hidden=!event.target.checked;return;
+      }
       if(event.target.id!=='gameIconFile')return;
       const file=event.target.files?.[0];
       if(!file)return;
@@ -762,11 +813,22 @@
     });
     document.addEventListener('submit',event=>{
       event.preventDefault();
+      if(event.target.id==='notificationSettingsForm'){
+        const candidate=safeNotifySettings({scope:$('#notifyScope').value,
+          dailyTime:$('#notifyAllDailyTime').value,
+          weeklyDay:Number($('#notifyAllWeeklyDay').value),
+          includeWeekly:$('#notifyAllWeekly').checked});
+        notifySettings=candidate;
+        if(saveNotifySettings()){
+          render();closeModal();notice(candidate.scope==='all'?'全ゲーム一括通知に設定しました':'ゲームごとの通知に設定しました');
+        }
+        return;
+      }
       if(event.target.id==='gameForm'){
         const id=event.target.dataset.id,name=$('#gameName').value.trim();
         if(!name){notice('ゲーム名を入力してください');return}
         if(imageProcessing){notice('画像の読み込みが終わってから保存してください');return}
-        const payload={name,icon:$('#gameIcon').value.trim()||'🎮',iconImage:pendingIconImage,color:safeColor($('#gameColor').value),resetTime:safeTime($('#resetTime').value),reminderTime:safeReminderTime($('#reminderTime').value),weeklyDay:safeDay($('#weeklyDay').value),weeklyReminderTime:safeReminderTime($('#weeklyReminderTime').value),weeklyReminderDay:safeDay($('#weeklyReminderDay').value),notificationMode:$('#notificationMode').value==='combined'?'combined':'separate'};
+        const payload={name,icon:$('#gameIcon').value.trim()||'🎮',iconImage:pendingIconImage,color:safeColor($('#gameColor').value),resetTime:safeTime($('#resetTime').value),reminderTime:safeReminderTime($('#reminderTime').value),weeklyDay:safeDay($('#weeklyDay').value),weeklyReminderTime:safeReminderTime($('#weeklyReminderTime').value),weeklyReminderDay:safeDay($('#weeklyReminderDay').value)};
         // 容量制限で保存できなかった場合は変更を取り消す。
         const oldGames=JSON.stringify(games);
         if(id){const g=games.find(x=>x.id===id);if(g)Object.assign(g,payload)}
