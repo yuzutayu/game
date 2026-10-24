@@ -78,6 +78,14 @@
     .icon-picker-actions .btn{min-height:37px;padding:7px 11px;font-size:12px}
     .icon-picker-actions label.btn{display:inline-flex;margin:0;color:var(--text);cursor:pointer}
     .icon-hint{font-size:11px;color:var(--muted);line-height:1.6;margin-top:6px}
+    .crop-panel{margin:12px 0 17px;padding:14px;background:#111a2d;border:1px solid #53617b;border-radius:16px}
+    .crop-panel[hidden]{display:none!important}
+    .crop-canvas{width:min(100%,280px);height:auto;aspect-ratio:1/1;display:block;margin:8px auto;border-radius:12px;border:2px solid #9ce9d3;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+    .crop-canvas:active{cursor:grabbing}
+    .crop-zoom{width:100%;accent-color:#9ce9d3;min-height:36px}
+    .crop-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+    .crop-actions .btn-primary{flex:1}
+
     .task-modal-game{display:flex;align-items:center;gap:9px}
     .task-modal-icon{width:31px;min-width:31px;height:31px;border-radius:9px;font-size:18px}
     .game-heading{min-width:0;flex:1}
@@ -238,6 +246,7 @@
     let toastTimer;
     let pendingIconImage='';
     let imageProcessing=false;
+    let cropState=null;
     let dismissedReminders={};
 
     function load(){
@@ -270,6 +279,8 @@
         resetTime:safeTime(g.resetTime),
         reminderTime:safeReminderTime(g.reminderTime),
         weeklyDay:safeDay(g.weeklyDay),
+        weeklyReminderTime:safeReminderTime(g.weeklyReminderTime),
+        weeklyReminderDay:safeDay(g.weeklyReminderDay ?? g.weeklyDay),
         tasks:(Array.isArray(g.tasks)?g.tasks:[]).slice(0,600).map(t=>({
           id:unique(t.id),title:String(t.title||'無題の日課').slice(0,120),
           repeat:validRepeat(t.repeat),
@@ -311,36 +322,45 @@
       const days=Math.floor(mins/1440),hours=Math.floor(mins%1440/60),minutes=mins%60;
       return days>0?`${days}日${hours}時間`:`${hours}時間${minutes}分`;
     }
-    // 時刻に達してから更新時刻までは、アプリを再度開いた場合も未消化を知らせます。
-    // OSのプッシュ通知ではなく、ページが表示されている間だけのアラートです。
-    function reminderStatus(game,now=new Date()){
-      const time=safeReminderTime(game.reminderTime);
+    // デイリーとウィークリーは通知対象と頻度を完全に分ける。
+    // デイリー：更新時刻から次の更新まで。ウィークリー：指定曜日の指定時刻以降のみ。
+    function reminderStatus(game,kind,now=new Date()){
+      const weekly=kind==='weekly';
+      const time=safeReminderTime(weekly?game.weeklyReminderTime:game.reminderTime);
       if(!time)return null;
-      const [rh,rm]=safeTime(game.resetTime).split(':').map(Number);
-      const [h,m]=time.split(':').map(Number);
-      const start=new Date(now.getFullYear(),now.getMonth(),now.getDate(),rh,rm,0,0);
-      if(now<start)start.setDate(start.getDate()-1);
-      const due=new Date(start.getFullYear(),start.getMonth(),start.getDate(),h,m,0,0);
-      if(due<start)due.setDate(due.getDate()+1);
-      if(now<due)return null;
-      const undone=game.tasks.filter(t=>t.repeat!=='once'&&!isDone(game,t,now));
+      let key;
+      if(weekly){
+        if(now.getDay()!==safeDay(game.weeklyReminderDay ?? game.weeklyDay))return null;
+        const [h,m]=time.split(':').map(Number);
+        if(now.getHours()*60+now.getMinutes()<h*60+m)return null;
+        key='weekly|'+ymd(now)+'|'+time;
+      }else{
+        const [rh,rm]=safeTime(game.resetTime).split(':').map(Number);
+        const [h,m]=time.split(':').map(Number);
+        const start=new Date(now.getFullYear(),now.getMonth(),now.getDate(),rh,rm,0,0);
+        if(now<start)start.setDate(start.getDate()-1);
+        const due=new Date(start.getFullYear(),start.getMonth(),start.getDate(),h,m,0,0);
+        if(due<start)due.setDate(due.getDate()+1);
+        if(now<due)return null;
+        key='daily|'+cycleKey(game,'daily',now)+'|'+time;
+      }
+      const undone=game.tasks.filter(t=>t.repeat===kind&&!isDone(game,t,now));
       if(!undone.length)return null;
-      const key=cycleKey(game,'daily',now)+'|'+time;
-      if(dismissedReminders[game.id]===key)return null;
-      return {game,undone,key,time};
+      if(dismissedReminders[game.id+'|'+kind]===key)return null;
+      return {game,kind,undone,key,time};
     }
     function renderAlerts(now=new Date()){
       const node=$('#reminderAlerts');if(!node)return;
-      const alerts=games.map(g=>reminderStatus(g,now)).filter(Boolean);
+      const alerts=games.flatMap(g=>['daily','weekly'].map(kind=>reminderStatus(g,kind,now))).filter(Boolean);
       node.hidden=!alerts.length;
       if(!alerts.length){node.innerHTML='';return}
-      node.innerHTML=`<h2 class="reminder-heading">🔔 指定時刻を過ぎた未完了の日課があります</h2>`+alerts.map(({game,undone,time})=>`
+      node.innerHTML=`<h2 class="reminder-heading">🔔 指定時刻を過ぎた未完了の日課があります</h2>`+alerts.map(({game,kind,undone,time})=>`
         <div class="reminder-item">
-          <div class="reminder-top"><div class="reminder-title">${escapeHTML(game.name)}<span class="reminder-chip">${escapeHTML(time)} 指定</span></div></div>
+          <div class="reminder-top"><div class="reminder-title">${escapeHTML(game.name)}<span class="reminder-chip">${kind==='daily'?'デイリー':'ウィークリー'} ${escapeHTML(time)}</span></div></div>
           <div class="reminder-sub">残り ${undone.length} 件：${escapeHTML(undone.slice(0,3).map(t=>t.title).join('、'))}${undone.length>3?' ほか':''}</div>
           <div class="reminder-actions">
             <button class="btn btn-primary" type="button" data-action="show-reminder-game" data-game="${escapeHTML(game.id)}">日課を確認</button>
-            <button class="btn" type="button" data-action="dismiss-reminder" data-game="${escapeHTML(game.id)}">今回の通知を閉じる</button>
+            <button class="btn" type="button" data-action="dismiss-reminder" data-game="${escapeHTML(game.id)}" data-kind="${kind}">今回の通知を閉じる</button>
           </div>
         </div>`).join('');
     }
@@ -411,7 +431,7 @@
         return `<section class="game ${complete?'is-done':''} ${closed?'game-closed':''}" data-id="${escapeHTML(g.id)}">
           <div class="game-head">
             <span class="game-emoji" style="--game-tone:${safeColor(g.color)}" aria-hidden="true">${iconMarkup(g)}</span>
-            <div class="game-heading"><div class="game-name">${escapeHTML(g.name)}</div><div class="game-meta">毎日 ${g.resetTime} 更新 ｜ 毎週 ${dayNames[g.weeklyDay]}曜更新${safeReminderTime(g.reminderTime)?` ｜ 🔔 ${escapeHTML(g.reminderTime)}`:''}</div></div>
+            <div class="game-heading"><div class="game-name">${escapeHTML(g.name)}</div><div class="game-meta">毎日 ${g.resetTime} 更新 ｜ 毎週 ${dayNames[g.weeklyDay]}曜更新${safeReminderTime(g.reminderTime)?` ｜ 🔔毎日 ${escapeHTML(g.reminderTime)}`:''}${safeReminderTime(g.weeklyReminderTime)?` ｜ 🔔毎週${dayNames[safeDay(g.weeklyReminderDay ?? g.weeklyDay)]}曜 ${escapeHTML(g.weeklyReminderTime)}`:''}</div></div>
             <div class="game-head-buttons">
               <button class="game-mini" type="button" data-action="edit-game" data-game="${escapeHTML(g.id)}" aria-label="${escapeHTML(g.name)}の設定">⚙</button>
               <button class="game-mini" type="button" data-action="collapse" data-game="${escapeHTML(g.id)}" aria-expanded="${!closed}" aria-label="${escapeHTML(g.name)}の項目を${closed?'表示':'閉じる'}">${closed?'⌄':'⌃'}</button>
@@ -433,9 +453,11 @@
       const input=$('#overlay [autofocus]');if(input)setTimeout(()=>input.focus({preventScroll:true}),50);
     }
     function closeModal(){
+      cancelIconCrop();
       $('#modalRoot').innerHTML='';document.body.style.overflow='';
     }
     function gameModal(id=null){
+      cancelIconCrop();
       const g=id?games.find(x=>x.id===id):null;
       const color=g?g.color:PALETTE[0];
       pendingIconImage=g?safeIconImage(g.iconImage):'';
@@ -456,16 +478,26 @@
                 <div class="icon-hint" id="iconHint">${pendingIconImage?'選択した画像を使います。':'画像がないときは下の絵文字を表示します。'}</div>
               </div>
             </div>
+            <div id="iconCropArea" class="crop-panel" hidden>
+              <strong>✂️ アイコンの切り抜き</strong>
+              <p class="icon-hint">枠内で写真をドラッグして位置を調整。スライダーで拡大できます。</p>
+              <canvas id="iconCropCanvas" class="crop-canvas" width="320" height="320" aria-label="アイコンの切り抜きプレビュー"></canvas>
+              <label for="iconCropZoom">拡大率</label>
+              <input id="iconCropZoom" class="crop-zoom" type="range" min="1" max="3" step="0.01" value="1">
+              <div class="crop-actions"><button type="button" class="btn" data-action="cancel-icon-crop">キャンセル</button><button type="button" class="btn btn-primary" data-action="apply-icon-crop">この範囲で切り抜く</button></div>
+            </div>
             <label for="gameIcon">画像なしの場合の絵文字</label>
             <input id="gameIcon" class="input" maxlength="12" value="${escapeHTML(g?g.icon:'🎮')}" placeholder="🎮">
-            <div class="hint">写真・画像は端末内で正方形に切り抜き、縮小して保存します。画像の中心がアイコンになります。</div>
+            <div class="hint">写真は選択後に位置・拡大率を指定して切り抜けます。編集後は「ゲームを保存」を押してください。</div>
           </div>
           <div class="form-grid">
             <div class="field"><label for="resetTime">毎日の更新時刻</label><input id="resetTime" class="input" type="time" required value="${g?g.resetTime:'05:00'}"></div>
             <div class="field"><label for="weeklyDay">毎週の更新曜日</label><select id="weeklyDay" class="input">${[1,2,3,4,5,6,0].map(d=>`<option value="${d}" ${g&&g.weeklyDay===d?'selected':!g&&d===1?'selected':''}>${dayNames[d]}曜日</option>`).join('')}</select></div>
           </div>
           <p class="section-help">ウィークリーも、上の更新時刻に切り替わります。</p>
-          <div class="field"><label for="reminderTime">🔔 未完了アラート時刻（任意）</label><input id="reminderTime" class="input" type="time" value="${escapeHTML(g?safeReminderTime(g.reminderTime):'')}"><div class="hint">設定した時刻を過ぎてもデイリー・ウィークリーが残っていたら、画面上にアラートを表示します。不要な場合は時刻を空欄にしてください。<strong>ホーム画面のアプリで通知を有効にすると、閉じていても未完了分を通知します。</strong>アプリ内にも未完了アラートを表示します。</div></div>
+          <div class="field"><label for="reminderTime">🔔 デイリーの通知時刻（毎日）</label><input id="reminderTime" class="input" type="time" value="${escapeHTML(g?safeReminderTime(g.reminderTime):'')}"><div class="hint">未完了のデイリーがある場合だけ、毎日指定時刻に通知。時刻を空にするとオフになります。</div></div>
+          <div class="field"><label for="weeklyReminderDay">🔔 ウィークリーの通知曜日（週1回）</label><select id="weeklyReminderDay" class="input">${[1,2,3,4,5,6,0].map(d=>`<option value="${d}" ${d===safeDay(g?(g.weeklyReminderDay ?? g.weeklyDay):0)?'selected':''}>${dayNames[d]}曜日</option>`).join('')}</select></div>
+          <div class="field"><label for="weeklyReminderTime">ウィークリーの通知時刻（任意）</label><input id="weeklyReminderTime" class="input" type="time" value="${escapeHTML(g?safeReminderTime(g.weeklyReminderTime):'')}"><div class="hint">指定した曜日と時刻に、未完了のウィークリーだけを通知します。<strong>初期状態はオフ</strong>。更新曜日とは別に設定できます。固定の日課は通知対象外です。</div></div>
           <div class="field"><label>カードの色</label><div class="swatches">${PALETTE.map(c=>`<button class="swatch ${color===c?'selected':''}" type="button" data-action="select-color" data-color="${c}" style="background:${c}" aria-label="色を選択" aria-pressed="${color===c}"></button>`).join('')}</div><input type="hidden" id="gameColor" value="${color}"></div>
           <div class="modal-actions">${g?`<button type="button" class="btn btn-danger" data-action="delete-game" data-game="${escapeHTML(g.id)}">削除</button>`:''}<button class="btn btn-primary" type="submit">${g?'変更を保存':'ゲームを登録'}</button></div>
         </form>`);
@@ -478,42 +510,98 @@
         : escapeHTML($('#gameIcon').value.trim() || '🎮');
       $('#removeIconImage').disabled=!pendingIconImage || imageProcessing;
       $('#iconHint').textContent=imageProcessing?'画像を読み込んでいます…':
-        pendingIconImage?'選択した画像を使います。':'画像がないときは下の絵文字を表示します。';
+        pendingIconImage?'切り抜いた画像を使います。':'画像がないときは下の絵文字を表示します。';
       const submit=$('#gameForm button[type=submit]');
       if(submit)submit.disabled=imageProcessing;
     }
-    async function makeIconImage(file){
-      if(!file || !file.type.startsWith('image/'))throw new Error('画像ファイルを選んでください');
-      if(file.size>12_000_000)throw new Error('12MB以下の画像を選んでください');
-      const url=URL.createObjectURL(file);
+    function cancelIconCrop(){
+      if(cropState?.url)URL.revokeObjectURL(cropState.url);
+      cropState=null;
+      imageProcessing=false;
+      const box=$('#iconCropArea'); if(box)box.hidden=true;
+      if($('#gameForm'))updateIconPreview();
+    }
+    function drawIconCrop(){
+      const state=cropState, canvas=$('#iconCropCanvas');if(!state||!canvas)return;
+      const size=canvas.width, w=state.img.naturalWidth,h=state.img.naturalHeight;
+      const scale=Math.max(size/w,size/h)*state.zoom;
+      const sw=w*scale,sh=h*scale;
+      state.x=Math.max((size-sw)/2,Math.min((sw-size)/2,state.x));
+      state.y=Math.max((size-sh)/2,Math.min((sh-size)/2,state.y));
+      const ctx=canvas.getContext('2d');if(!ctx)return;
+      ctx.clearRect(0,0,size,size);
+      ctx.drawImage(state.img,(size-sw)/2+state.x,(size-sh)/2+state.y,sw,sh);
+    }
+    async function openIconCrop(file){
+      if(!file||!file.type.startsWith('image/'))throw Error('画像ファイルを選んでください');
+      if(file.size>12_000_000)throw Error('12MB以下の画像を選んでください');
+      cancelIconCrop();
+      const form=$('#gameForm');if(!form)return;
+      imageProcessing=true;updateIconPreview();
+      const state={url:URL.createObjectURL(file),img:new Image(),zoom:1,x:0,y:0,drag:null};
+      cropState=state;
       try{
-        const img=new Image();
         await new Promise((resolve,reject)=>{
-          img.onload=resolve;
-          img.onerror=()=>reject(new Error('画像を読み込めませんでした。JPEGやPNGをお試しください'));
-          img.src=url;
+          state.img.onload=resolve;
+          state.img.onerror=()=>reject(Error('画像を読み込めませんでした。JPEGやPNGをお試しください'));
+          state.img.src=state.url;
         });
-        const edge=Math.min(img.naturalWidth,img.naturalHeight);
-        if(!edge)throw new Error('画像のサイズを取得できませんでした');
-        for(const size of [256,192,144]){
-          const canvas=document.createElement('canvas');canvas.width=canvas.height=size;
-          const ctx=canvas.getContext('2d');
-          if(!ctx)throw new Error('画像の加工に対応していません');
-          const sx=(img.naturalWidth-edge)/2,sy=(img.naturalHeight-edge)/2;
-          ctx.drawImage(img,sx,sy,edge,edge,0,0,size,size);
-          for(const quality of [.82,.65,.45]){
-            let data=canvas.toDataURL('image/webp',quality);
-            if(!data.startsWith('data:image/webp;base64,')){
-              // WebP非対応の環境ではJPEGで保存する。
-              ctx.globalCompositeOperation='destination-over';
-              ctx.fillStyle='#ffffff';ctx.fillRect(0,0,size,size);
-              data=canvas.toDataURL('image/jpeg',quality);
-            }
-            if(safeIconImage(data))return data;
+        if(cropState!==state||$('#gameForm')!==form)return;
+        if(!state.img.naturalWidth||!state.img.naturalHeight)throw Error('画像サイズを読み取れませんでした');
+        $('#iconCropArea').hidden=false;
+        $('#iconCropZoom').value='1';
+        const canvas=$('#iconCropCanvas');
+        canvas.addEventListener('pointerdown',e=>{
+          if(cropState!==state)return;
+          e.preventDefault();canvas.setPointerCapture(e.pointerId);
+          state.drag={id:e.pointerId,x:e.clientX,y:e.clientY};
+        });
+        canvas.addEventListener('pointermove',e=>{
+          if(cropState!==state||!state.drag||state.drag.id!==e.pointerId)return;
+          e.preventDefault();
+          const factor=canvas.width/canvas.getBoundingClientRect().width;
+          state.x+=(e.clientX-state.drag.x)*factor;
+          state.y+=(e.clientY-state.drag.y)*factor;
+          state.drag.x=e.clientX;state.drag.y=e.clientY;
+          drawIconCrop();
+        });
+        const done=e=>{if(state.drag?.id===e.pointerId)state.drag=null};
+        canvas.addEventListener('pointerup',done);
+        canvas.addEventListener('pointercancel',done);
+        $('#iconCropZoom').addEventListener('input',e=>{
+          if(cropState!==state)return;
+          state.zoom=Number(e.target.value);drawIconCrop();
+        });
+        drawIconCrop();
+        $('#iconHint').textContent='写真の位置と拡大率を調整して「この範囲で切り抜く」を押してください。';
+      }catch(err){if(cropState===state)cancelIconCrop();throw err;}
+    }
+    function cropImageData(canvas){
+      for(const size of [256,192,144]){
+        const output=document.createElement('canvas');output.width=output.height=size;
+        const ctx=output.getContext('2d');if(!ctx)throw Error('画像の加工に対応していません');
+        ctx.drawImage(canvas,0,0,size,size);
+        for(const quality of [.82,.65,.45]){
+          let data=output.toDataURL('image/webp',quality);
+          if(!data.startsWith('data:image/webp;base64,')){
+            ctx.globalCompositeOperation='destination-over';
+            ctx.fillStyle='#fff';ctx.fillRect(0,0,size,size);
+            data=output.toDataURL('image/jpeg',quality);
           }
+          if(safeIconImage(data))return data;
         }
-        throw new Error('画像を縮小できませんでした。別の画像をお試しください');
-      }finally{URL.revokeObjectURL(url)}
+      }
+      throw Error('画像を縮小できませんでした。別の画像をお試しください');
+    }
+    function applyIconCrop(){
+      if(!cropState)return;
+      try{
+        drawIconCrop();
+        pendingIconImage=cropImageData($('#iconCropCanvas'));
+        cancelIconCrop();
+        updateIconPreview();
+        notice('切り抜きました。「ゲームを保存」で確定します');
+      }catch(err){alert(err.message||'画像の加工に失敗しました')}
     }
         function taskModal(gameId,taskId=null){
       const g=games.find(x=>x.id===gameId);if(!g)return;
@@ -530,8 +618,8 @@
       modal(`<div class="modal-header"><h2 id="modalTitle">設定・バックアップ</h2><button type="button" class="btn btn-icon btn-ghost" data-action="close-modal" aria-label="閉じる">×</button></div>
         <p class="section-help">登録データはこの端末のブラウザ内に保存されます。画像やチェック状況を外部サーバーへ送信しません。</p>
         <div class="settings-group"><h3>💾 データを守る</h3><p>このブラウザの保存領域に自動保存しています。ブラウザのデータ削除や端末変更に備え、定期的にJSONバックアップを保存してください。</p><button class="btn btn-primary" data-action="export" type="button">⬇ バックアップ保存</button><button class="btn" type="button" data-action="import">⬆ バックアップ復元</button><p class="note">復元すると、現在のゲームと日課はバックアップの内容で置き換わります。</p></div>
-        <div class="settings-group"><h3>🖼️ ゲームのアイコン</h3><p>各ゲームの設定（⚙）から好きな画像を選べます。画像は小さく加工してブラウザ内に保存し、JSONバックアップにも含まれます。元の写真をGitHubにアップロードする必要はありません。画像が多いと保存容量を使うため、時々バックアップを取ってください。</p></div>
-        <div class="settings-group"><h3>🔔 未完了通知（iPhone）</h3><p>ゲームの⚙から通知時刻を指定できます。アプリを閉じていても未完了の日課がある場合だけ、ロック画面に通知します。初回のみ招待コードと通知許可が必要です。ゲーム名・日課名・完了情報を通知用サーバーに送ります。招待コードは端末に保存しません。</p><label for="pushInviteCode" class="note" style="display:block;margin:0 0 7px">初回登録用の招待コード（友人から受け取ったコード）</label><input id="pushInviteCode" class="input" type="password" autocomplete="off" spellcheck="false" placeholder="通知を初めて有効にする時だけ入力" style="margin-bottom:12px"><button class="btn btn-primary" id="pushToggleButton" type="button">🔔 通知を有効にする</button><button class="btn" id="pushTestButton" type="button" hidden>🧪 テスト通知</button><p class="note" id="pushStatus" role="status" aria-live="polite" style="margin-top:10px">通知機能の読み込みを確認中です。表示が変わらない場合は push-client.js のアップロードを確認してください。</p></div>
+        <div class="settings-group"><h3>🖼️ ゲームのアイコン</h3><p>ゲームの⚙から好きな画像を選び、位置と拡大を調整して切り抜けます。画像は小さく加工してブラウザ内に保存し、JSONバックアップにも含まれます。元の写真をGitHubにアップロードする必要はありません。画像が多いと保存容量を使うため、時々バックアップを取ってください。</p></div>
+        <div class="settings-group"><h3>🔔 未完了通知（iPhone）</h3><p>ゲームの⚙からデイリーの毎日の通知時刻と、ウィークリーの週1回の通知曜日・時刻を別々に指定できます。未完了の対象日課がある場合にロック画面へ通知します。初回のみ招待コードと通知許可が必要です。ゲーム名・日課名・完了情報を通知用サーバーに送ります。招待コードは端末に保存しません。</p><label for="pushInviteCode" class="note" style="display:block;margin:0 0 7px">初回登録用の招待コード（友人から受け取ったコード）</label><input id="pushInviteCode" class="input" type="password" autocomplete="off" spellcheck="false" placeholder="通知を初めて有効にする時だけ入力" style="margin-bottom:12px"><button class="btn btn-primary" id="pushToggleButton" type="button">🔔 通知を有効にする</button><button class="btn" id="pushTestButton" type="button" hidden>🧪 テスト通知</button><p class="note" id="pushStatus" role="status" aria-live="polite" style="margin-top:10px">通知機能の読み込みを確認中です。表示が変わらない場合は push-client.js のアップロードを確認してください。</p></div>
         <div class="settings-group"><h3>🔄 自動リセットについて</h3><p>ゲームごとに設定した時刻・曜日を過ぎると、対応する日課が自動で未完了扱いになります。ページを開きっぱなしでなくても、次回表示時に反映されます。更新時刻はスマホ本体の時刻とタイムゾーンを基準にします。</p></div>
         <div class="settings-group"><h3>📱 スマホでの使い方</h3><p>安定して使うには、このHTMLをHTTPSの静的サイトとして公開してSafariで開き、「共有」→「ホーム画面に追加」がおすすめです。iPhoneの「ファイル」アプリのプレビューなどでは保存が安定しない場合があります。</p></div>
         <div class="settings-group"><h3>🧪 お試し用データ</h3><p>まだゲームを登録していなければ、サンプルのゲームを追加して操作を試せます。</p><button class="btn" type="button" data-action="sample">サンプルを追加</button></div>`);
@@ -539,7 +627,7 @@
     function addSample(){
       if(games.length&&!confirm('サンプルゲームを追加しますか？ 既存のゲームはそのまま残ります。'))return;
       games.push({id:newId(),name:'サンプルゲーム',icon:'🌟',color:PALETTE[1],resetTime:'05:00',weeklyDay:1,
-        reminderTime:'21:00',tasks:[makeTask('ログイン報酬を受け取る'),makeTask('デイリー任務をクリア'),makeTask('スタミナ消費'),makeTask('週ボスの報酬を回収','weekly')]});
+        reminderTime:'21:00',weeklyReminderTime:'',weeklyReminderDay:0,tasks:[makeTask('ログイン報酬を受け取る'),makeTask('デイリー任務をクリア'),makeTask('スタミナ消費'),makeTask('週ボスの報酬を回収','weekly')]});
       save();closeModal();render();notice('サンプルを追加しました');
     }
     function handleToggle(gameId,taskId){
@@ -586,9 +674,9 @@
       if(a==='toggle-task')handleToggle(g,t);
       if(a==='collapse'){collapsed.has(g)?collapsed.delete(g):collapsed.add(g);render()}
       if(a==='dismiss-reminder'){
-        const target=games.find(x=>x.id===g);
-        const state=target?reminderStatus(target):null;
-        if(state){dismissedReminders[g]=state.key;saveDismissed();renderAlerts();}
+        const target=games.find(x=>x.id===g),kind=btn.dataset.kind;
+        const state=target?reminderStatus(target,kind):null;
+        if(state){dismissedReminders[g+'|'+kind]=state.key;saveDismissed();renderAlerts();}
       }
       if(a==='show-reminder-game'){
         collapsed.delete(g);prefs.filter='all';prefs.hideDone=true;savePrefs();render();
@@ -600,7 +688,9 @@
         if($('#gameIconPreview'))$('#gameIconPreview').style.setProperty('--game-tone',btn.dataset.color);
         document.querySelectorAll('.swatch').forEach(s=>{const active=s===btn;s.classList.toggle('selected',active);s.setAttribute('aria-pressed',String(active))});
       }
-      if(a==='remove-icon-image'){pendingIconImage='';updateIconPreview()}
+      if(a==='remove-icon-image'){cancelIconCrop();pendingIconImage='';updateIconPreview()}
+      if(a==='cancel-icon-crop')cancelIconCrop();
+      if(a==='apply-icon-crop')applyIconCrop();
       if(a==='delete-game'){
         const target=games.find(x=>x.id===g);
         if(target&&confirm(`「${target.name}」と登録された日課をすべて削除しますか？\nこの操作は取り消せません。`)){
@@ -624,19 +714,9 @@
       if(event.target.id!=='gameIconFile')return;
       const file=event.target.files?.[0];
       if(!file)return;
-      const form=$('#gameForm');
-      if(!form)return;
-      imageProcessing=true;updateIconPreview();
-      try{
-        const image=await makeIconImage(file);
-        // ファイル選択中に編集画面を閉じた場合は別画面に反映しない。
-        if($('#gameForm')!==form)return;
-        pendingIconImage=image;
-        notice('アイコン画像を設定しました。保存ボタンで確定します');
-      }catch(err){if($('#gameForm')===form)alert(err.message||'画像を設定できませんでした')}
-      finally{
-        if($('#gameForm')===form){imageProcessing=false;updateIconPreview();event.target.value=''}
-      }
+      try{await openIconCrop(file)}
+      catch(err){alert(err.message||'画像を読み込めませんでした')}
+      finally{event.target.value=''}
     });
     document.addEventListener('submit',event=>{
       event.preventDefault();
@@ -644,7 +724,7 @@
         const id=event.target.dataset.id,name=$('#gameName').value.trim();
         if(!name){notice('ゲーム名を入力してください');return}
         if(imageProcessing){notice('画像の読み込みが終わってから保存してください');return}
-        const payload={name,icon:$('#gameIcon').value.trim()||'🎮',iconImage:pendingIconImage,color:safeColor($('#gameColor').value),resetTime:safeTime($('#resetTime').value),reminderTime:safeReminderTime($('#reminderTime').value),weeklyDay:safeDay($('#weeklyDay').value)};
+        const payload={name,icon:$('#gameIcon').value.trim()||'🎮',iconImage:pendingIconImage,color:safeColor($('#gameColor').value),resetTime:safeTime($('#resetTime').value),reminderTime:safeReminderTime($('#reminderTime').value),weeklyDay:safeDay($('#weeklyDay').value),weeklyReminderTime:safeReminderTime($('#weeklyReminderTime').value),weeklyReminderDay:safeDay($('#weeklyReminderDay').value)};
         // 容量制限で保存できなかった場合は変更を取り消す。
         const oldGames=JSON.stringify(games);
         if(id){const g=games.find(x=>x.id===id);if(g)Object.assign(g,payload)}
