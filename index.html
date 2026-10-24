@@ -154,6 +154,22 @@
     .modal-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:20px}
     .modal-actions .btn-primary{flex:1}
     .section-help{color:#b9c7dd;font-size:12px;line-height:1.8;margin:0 0 17px}
+    .passes-section{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 14px;margin-bottom:13px;background:#1a2537;border:1px solid #45556a;border-radius:17px}
+    .passes-mini{display:flex;align-items:center;gap:10px;min-width:0}
+    .passes-mini-icon{font-size:27px}
+    .passes-mini-text{display:flex;flex-direction:column;gap:4px;min-width:0}
+    .passes-mini-text strong{font-size:14px;color:#effaf5}
+    .passes-mini-text span{font-size:12px;color:#b0bfd5;overflow-wrap:anywhere}
+    .pass-card{background:#141e33;border:1px solid #3a4965;border-radius:14px;padding:13px;margin:10px 0}
+    .pass-card .pass-head{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+    .pass-card strong{overflow-wrap:anywhere}
+    .pass-card small{color:#acbed3;display:block;margin-top:5px;line-height:1.65}
+    .pass-controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+    .pass-controls .btn{font-size:12px;min-height:37px}
+    .pass-soon{color:#f3cd9e!important}
+    .pass-expired{color:#ffbac1!important}
+    .pass-checkboxes{display:flex;flex-wrap:wrap;gap:12px;margin-top:7px}
+    .pass-checkboxes label{display:flex;align-items:center;gap:5px;color:#d5ddeb;font-size:13px}
     .settings-group{padding:14px 0;border-top:1px solid #33405c}
     .settings-group h3{font-size:14px;margin:0 0 7px}
     .settings-group p{font-size:12px;color:#acb9d3;line-height:1.8;margin:0 0 12px}
@@ -201,6 +217,10 @@
       </div>
     </section>
     <section id="reminderAlerts" class="reminders" role="alert" aria-live="polite" hidden></section>
+    <section class="passes-section" aria-label="月パスの期限管理">
+      <div class="passes-mini"><span class="passes-mini-icon" aria-hidden="true">🎫</span><div class="passes-mini-text"><strong>月パス・更新リマインダー</strong><span id="passesSummary">月パスの期限を登録して忘れずチェック</span></div></div>
+      <button type="button" class="btn" id="monthlyPassButton">管理する</button>
+    </section>
     <div class="section-row">
       <h2 class="section-title">マイゲーム <span class="section-meta" id="gameCount">0 件</span></h2>
       <button class="btn btn-ghost" id="collapseButton" type="button">すべて閉じる</button>
@@ -250,6 +270,32 @@
     const safeDay = d => Number.isInteger(+d) && +d>=0 && +d<=6 ? +d : 1;
     const validRepeat = t => ['daily','weekly','once'].includes(t) ? t : 'daily';
     const makeTask = (title,repeat='daily')=>({id:newId(),title,repeat,doneKeys:[]});
+    const VALID_LEADS=[7,3,1,0];
+    const validDate = value => {
+      if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;
+      const [y,m,d]=value.split('-').map(Number);
+      const date=new Date(Date.UTC(y,m-1,d));
+      return y>=2000&&y<=2099&&date.getUTCFullYear()===y&&date.getUTCMonth()===m-1&&date.getUTCDate()===d;
+    };
+    const safePass = pass => ({
+      id:String(pass?.id||newId()).slice(0,150),
+      name:String(pass?.name||'月パス').slice(0,60),
+      expires:validDate(pass?.expires)?pass.expires:'',
+      remindTime:safeReminderTime(pass?.remindTime)||'20:00',
+      leadDays:Array.isArray(pass?.leadDays)?VALID_LEADS.filter(x=>pass.leadDays.includes(x)): [3,1,0],
+      enabled:pass?.enabled!==false
+    });
+    function remainingDays(date,now=new Date()){
+      const [y,m,d]=date.split('-').map(Number);
+      const start=Date.UTC(now.getFullYear(),now.getMonth(),now.getDate());
+      return Math.round((Date.UTC(y,m-1,d)-start)/86400000);
+    }
+    function nextMonthDate(date){
+      const [y,m,d]=date.split('-').map(Number);
+      const last=new Date(Date.UTC(y,m+1,0)).getUTCDate();
+      const later=new Date(Date.UTC(y,m,Math.min(d,last)));
+      return ymd(new Date(later.getUTCFullYear(),later.getUTCMonth(),later.getUTCDate()));
+    }
     let games=[];
     let prefs={filter:'all',hideDone:false,summaryView:'daily'};
     let collapsed=new Set();
@@ -309,6 +355,7 @@
         weeklyDay:safeDay(g.weeklyDay),
         weeklyReminderTime:safeReminderTime(g.weeklyReminderTime),
         weeklyReminderDay:safeDay(g.weeklyReminderDay ?? g.weeklyDay),
+        passes:(Array.isArray(g.passes)?g.passes:[]).slice(0,30).map(safePass).filter(p=>p.expires),
         tasks:(Array.isArray(g.tasks)?g.tasks:[]).slice(0,600).map(t=>({
           id:unique(t.id),title:String(t.title||'無題の日課').slice(0,120),
           repeat:validRepeat(t.repeat),
@@ -462,6 +509,7 @@
       $('#heroMeter').style.setProperty('--pct',percentage+'%');
       $('#dailyInfo').textContent=s.total>0&&s.done===s.total?`✨ ${summaryLabels[summaryView]}の日課をすべて達成！`:summaryView==='all'?'☀ デイリー＋ウィークリー（固定は除外）':`☀ ${summaryLabels[summaryView]}のみ集計中`;
       $('#gameCount').textContent=`${games.length} 件`;
+      renderPassSummary(now);
       $('#hideDone').checked=prefs.hideDone;
       document.querySelectorAll('[data-filter]').forEach(btn=>{
         const active=btn.dataset.filter===prefs.filter;
@@ -521,6 +569,50 @@
     function closeModal(){
       cancelIconCrop();
       $('#modalRoot').innerHTML='';document.body.style.overflow='';
+    }
+    function listPasses(){
+      return games.flatMap(g=>(g.passes||[]).map(pass=>({g,pass})))
+        .sort((a,b)=>a.pass.expires.localeCompare(b.pass.expires));
+    }
+    function renderPassSummary(now=new Date()){
+      const node=$('#passesSummary');if(!node)return;
+      const all=listPasses();
+      if(!all.length){node.textContent='期限を登録して更新忘れを防ごう';return;}
+      const active=all.filter(x=>x.pass.enabled),soon=active.filter(x=>remainingDays(x.pass.expires,now)>=0&&remainingDays(x.pass.expires,now)<=7);
+      const past=active.filter(x=>remainingDays(x.pass.expires,now)<0);
+      node.textContent=`登録${all.length}件 ・ ${past.length?'期限切れ'+past.length+'件 ・ ':''}${soon.length?'7日以内 '+soon.length+'件':'期限が近い月パスはありません'}`;
+    }
+    function passListModal(){
+      const all=listPasses();
+      modal(`<div class="modal-header"><h2 id="modalTitle">🎫 月パス・更新リマインダー</h2><button type="button" class="btn btn-icon btn-ghost" data-action="close-modal" aria-label="閉じる">×</button></div>
+        <p class="section-help">ゲームの月パスや有効期限を管理します。デイリーの達成率には含みません。更新日は自動変更されず、実際に購入・更新したら次の期限を登録してください。</p>
+        <button type="button" class="btn btn-primary" data-action="new-pass" ${games.length?'':'disabled'}>＋ 月パスを登録</button>
+        ${games.length?'':'<p class="section-help">先にゲームを登録してください。</p>'}
+        ${all.map(({g,pass})=>{
+          const days=remainingDays(pass.expires);
+          const desc=days<0?`期限から${Math.abs(days)}日経過`:days===0?'今日が期限！':`あと${days}日`;
+          return `<div class="pass-card"><div class="pass-head"><div><strong>${escapeHTML(g.name)} · ${escapeHTML(pass.name)}</strong><small>有効期限：${escapeHTML(pass.expires)} ／ ${escapeHTML(pass.remindTime)} ／ ${pass.leadDays.map(x=>x===0?'当日':x+'日前').join('・')||'通知なし'}${pass.enabled?'':' ／ 停止中'}</small></div><strong class="${days<0?'pass-expired':days<=7?'pass-soon':''}" style="font-size:12px;white-space:nowrap">${escapeHTML(desc)}</strong></div>
+          <div class="pass-controls"><button type="button" class="btn" data-action="edit-pass" data-game="${escapeHTML(g.id)}" data-pass="${escapeHTML(pass.id)}">編集</button><button type="button" class="btn btn-primary" data-action="renew-pass" data-game="${escapeHTML(g.id)}" data-pass="${escapeHTML(pass.id)}">期限を更新</button><button type="button" class="btn btn-danger" data-action="delete-pass" data-game="${escapeHTML(g.id)}" data-pass="${escapeHTML(pass.id)}">削除</button></div></div>`;
+        }).join('')||'<p class="section-help" style="margin-top:16px">まだ月パスは登録されていません。</p>'}
+        <p class="note">通知はiPhoneの「⚙ → 通知を有効にする」で許可した端末だけに届きます。毎日の未完了通知とは別のリマインダーです。</p>`);
+    }
+    function passEditModal(gameId=null,passId=null,renew=false){
+      const g=gameId?games.find(x=>x.id===gameId):games[0];
+      if(!g)return passListModal();
+      const pass=passId?(g.passes||[]).find(x=>x.id===passId):null;
+      const date=pass?(renew?nextMonthDate(pass.expires):pass.expires):ymd(new Date());
+      const leads=pass?pass.leadDays:[3,1,0];
+      modal(`<div class="modal-header"><h2 id="modalTitle">${pass?(renew?'月パスの期限を更新':'月パスを編集'):'月パスを登録'}</h2><button type="button" class="btn btn-icon btn-ghost" data-action="close-modal" aria-label="閉じる">×</button></div>
+        <form id="passForm" data-game="${escapeHTML(g.id)}" data-pass="${escapeHTML(pass?.id||'')}">
+          <div class="field"><label for="passGame">ゲーム</label><select class="input" id="passGame" ${pass?'disabled':''}>${games.map(x=>`<option value="${escapeHTML(x.id)}" ${x.id===g.id?'selected':''}>${escapeHTML(x.name)}</option>`).join('')}</select></div>
+          <div class="field"><label for="passName">月パス名</label><input id="passName" class="input" maxlength="60" required value="${escapeHTML(pass?.name||'月パス')}" placeholder="例：祝福パス"></div>
+          <div class="field"><label for="passExpires">有効期限（日付）</label><input id="passExpires" class="input" type="date" required min="2000-01-01" max="2099-12-31" value="${escapeHTML(date)}"><div class="hint">${renew?'前回の期限から1か月後を仮入力しました。実際の購入・更新後の期限に直してください。':'購入元の画面に表示されている有効期限を入力してください。30日間のパスも登録できます。'}</div></div>
+          <div class="field"><label for="passTime">通知時刻</label><input id="passTime" type="time" class="input" required value="${escapeHTML(pass?.remindTime||'20:00')}"></div>
+          <div class="field"><label>いつ通知する？（複数選択可）</label><div class="pass-checkboxes">${VALID_LEADS.map(x=>`<label><input type="checkbox" name="passLead" value="${x}" ${leads.includes(x)?'checked':''}>${x===0?'当日':x+'日前'}</label>`).join('')}</div></div>
+          <label class="mini-toggle" style="margin:15px 0"><input type="checkbox" id="passEnabled" ${pass?.enabled!==false?'checked':''}>この月パスの通知を有効にする</label>
+          <p class="note">更新は自動で購入されません。購入完了後、「期限を更新」から新しい日付を保存してください。</p>
+          <div class="modal-actions"><button type="button" class="btn" data-action="pass-list">一覧に戻る</button><button type="submit" class="btn btn-primary">${pass?'期限・設定を保存':'月パスを登録'}</button></div>
+        </form>`);
     }
     function gameModal(id=null){
       cancelIconCrop();
@@ -682,7 +774,7 @@
     }
     function settingsModal(){
       modal(`<div class="modal-header"><h2 id="modalTitle">設定・バックアップ</h2><button type="button" class="btn btn-icon btn-ghost" data-action="close-modal" aria-label="閉じる">×</button></div>
-        <p class="section-help">ゲームの本体データと画像は端末内に保存されます。プッシュ通知を有効にしている場合のみ、ゲーム名・日課名・完了状況・通知設定がCloudflareへ同期されます。画像は送信しません。</p>
+        <p class="section-help">ゲームの本体データと画像は端末内に保存されます。プッシュ通知を有効にしている場合のみ、ゲーム名・日課名・完了状況・通知設定・月パス名・期限がCloudflareへ同期されます。画像や支払い情報は送信しません。</p>
         <div class="settings-group"><h3>💾 データを守る</h3><p>このブラウザの保存領域に自動保存しています。ブラウザのデータ削除や端末変更に備え、定期的にJSONバックアップを保存してください。</p><button class="btn btn-primary" data-action="export" type="button">⬇ バックアップ保存</button><button class="btn" type="button" data-action="import">⬆ バックアップ復元</button><p class="note">復元すると、現在のゲームと日課はバックアップの内容で置き換わります。</p></div>
         <div class="settings-group"><h3>🖼️ ゲームのアイコン</h3><p>ゲームの⚙から好きな画像を選び、位置と拡大を調整して切り抜けます。画像は小さく加工してブラウザ内に保存し、JSONバックアップにも含まれます。元の写真をGitHubにアップロードする必要はありません。画像が多いと保存容量を使うため、時々バックアップを取ってください。</p></div>
         <div class="settings-group"><h3>🔔 通知をまとめる範囲</h3>
@@ -748,6 +840,16 @@
       const a=btn.dataset.action,g=btn.dataset.game,t=btn.dataset.task;
       if(a==='close-modal')closeModal();
       if(a==='new-game')gameModal();
+      if(a==='pass-list')passListModal();
+      if(a==='new-pass')passEditModal();
+      if(a==='edit-pass'||a==='renew-pass')passEditModal(g,btn.dataset.pass,a==='renew-pass');
+      if(a==='delete-pass'){
+        const game=games.find(x=>x.id===g),pass=game?.passes?.find(x=>x.id===btn.dataset.pass);
+        if(pass&&confirm(`「${game.name}」の「${pass.name}」の期限登録を削除しますか？`)){
+          game.passes=game.passes.filter(x=>x.id!==pass.id);
+          if(save()){render();passListModal();notice('月パスを削除しました');}
+        }
+      }
       if(a==='edit-game')gameModal(g);
       if(a==='new-task')taskModal(g);
       if(a==='edit-task')taskModal(g,t);
@@ -824,6 +926,22 @@
         }
         return;
       }
+      if(event.target.id==='passForm'){
+        const current=games.find(x=>x.id===event.target.dataset.game);
+        const dest=games.find(x=>x.id===$('#passGame').value);
+        const existing=(current?.passes||[]).find(x=>x.id===event.target.dataset.pass);
+        const expires=$('#passExpires').value;
+        if(!dest||!validDate(expires)){notice('有効期限を正しく入力してください');return;}
+        const name=$('#passName').value.trim();
+        if(!name){notice('月パスの名前を入力してください');return;}
+        const pass={id:existing?.id||newId(),name:name.slice(0,60),expires,remindTime:safeReminderTime($('#passTime').value)||'20:00',leadDays:VALID_LEADS.filter(x=>Array.from(document.querySelectorAll('[name="passLead"]:checked')).some(e=>Number(e.value)===x)),enabled:$('#passEnabled').checked};
+        if(!existing&&(dest.passes||[]).length>=30){notice('1ゲームにつき30件まで登録できます');return;}
+        const before=JSON.stringify(games);
+        if(existing)Object.assign(existing,pass);
+        else{dest.passes ||= [];dest.passes.push(pass);}
+        if(!save()){games=JSON.parse(before);return;}
+        render();passListModal();notice('月パスの期限を保存しました');return;
+      }
       if(event.target.id==='gameForm'){
         const id=event.target.dataset.id,name=$('#gameName').value.trim();
         if(!name){notice('ゲーム名を入力してください');return}
@@ -854,6 +972,7 @@
     });
     document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#overlay'))closeModal()});
     $('#newGameButton').addEventListener('click',()=>gameModal());
+    $('#monthlyPassButton').addEventListener('click',passListModal);
     $('#settingsButton').addEventListener('click',settingsModal);
     $('#backupFooter').addEventListener('click',settingsModal);
     $('#importFile').addEventListener('change',async event=>{await importData(event.target.files?.[0]);event.target.value=''});

@@ -33,6 +33,11 @@
       resetTime: g.resetTime || '05:00', reminderTime: g.reminderTime || '',
       weeklyDay: Number(g.weeklyDay ?? 1),
       weeklyReminderTime: g.weeklyReminderTime || '', weeklyReminderDay: Number(g.weeklyReminderDay ?? g.weeklyDay ?? 1),
+      passes:(Array.isArray(g.passes)?g.passes:[]).map(p=>({
+        id:String(p.id||'').slice(0,150), name:String(p.name||'月パス').slice(0,60),
+        expires:String(p.expires||''),remindTime:p.remindTime||'20:00',
+        leadDays:Array.isArray(p.leadDays)?p.leadDays:[],enabled:p.enabled!==false
+      })),
       tasks: (Array.isArray(g.tasks)?g.tasks:[]).map(t=>({
         title: String(t.title||'日課').slice(0,130), repeat:t.repeat||'daily',
         doneKeys: (Array.isArray(t.doneKeys)?t.doneKeys:[])
